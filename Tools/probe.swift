@@ -102,7 +102,7 @@ struct Probe {
 
         // Render the real menu-bar glyph to a PNG. The status-bar image is otherwise the one part of
         // the app you cannot inspect without taking a screenshot of the whole display — this renders it
-        // through the same tickerMenuBarImage() the app uses, so colour, spacing and total width can be
+        // through the same MenuBarGlyph the app uses, so colour, spacing and total width can be
         // checked directly.
         if let out = ProcessInfo.processInfo.environment["GLYPH_OUT"] {
             // GLYPH_DEMO renders one synthetic quote per PriceBand instead of the live ones. Live data
@@ -140,8 +140,8 @@ struct Probe {
 
     @MainActor
     static func renderGlyph(quotes: [Quote], to path: String, sorted: Bool = true) {
-        // tickerMenuBarImage reads NSApp.effectiveAppearance to pick its neutral text colour, so the
-        // shared application has to exist before it is called.
+        // The label's `isDark` is read off NSApp, which picks the glyph's neutral text colour — so the
+        // shared application has to exist before the label is built.
         _ = NSApplication.shared
 
         let ordered = sorted ? quotes.sorted { $0.symbol < $1.symbol } : quotes
