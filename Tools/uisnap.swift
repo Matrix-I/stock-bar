@@ -35,6 +35,19 @@ struct UISnap {
         }
 
         let watchlist = Watchlist()
+        // Always reset, unconditionally: Watchlist persists to UserDefaults, and this tool has its own
+        // defaults domain, so without this a run that appended symbols silently became the starting point
+        // for every later run — two invocations of the same command produced different PNGs.
+        watchlist.resetToDefaults()
+        // A list long enough to scroll is the case the scrolling branch exists for, and the shipped
+        // default is four rows. STOCKBAR_UI_WATCHLIST=VCB,MBB,BTCUSDT appends real tickers so that branch
+        // can be rendered at all; the market is inferred from each one, so the rows carry real prices
+        // rather than a screenful of dashes.
+        if let extra = ProcessInfo.processInfo.environment["STOCKBAR_UI_WATCHLIST"] {
+            for field in extra.split(separator: ",") {
+                watchlist.add(String(field), market: .vietnam)
+            }
+        }
         let reader = QuoteReader(watchlist: watchlist)
         let updater = Updater()
 

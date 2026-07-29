@@ -152,6 +152,38 @@ struct QuoteRow: View {
     }
 }
 
+// MARK: - Height measurement
+
+/// The unclipped height the symbol list wants, so the panel can decide for itself whether to scroll.
+///
+/// A `ScrollView` reports no useful height of its own, so it cannot be handed an open-ended constraint
+/// here: the popover sizes itself to its SwiftUI content, and a ScrollView asked for its ideal height in
+/// that situation answers with roughly nothing — the panel would collapse. Measuring the content and
+/// then giving the ScrollView a concrete height is what avoids that.
+private struct ListHeightKey: PreferenceKey {
+    static let defaultValue: CGFloat = 0
+    /// `max`, not last-one-wins: the background GeometryReader emits a spurious 0 alongside the real
+    /// height during an early layout pass, and letting that through leaves the measurement stuck at zero
+    /// so the list never switches to the scrolling branch. Every pass recomputes from scratch, so a
+    /// shrinking list is still tracked.
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = max(value, nextValue())
+    }
+}
+
+/// Height of the pinned header, measured the same way and for the same reason as the list.
+private struct HeaderHeightKey: PreferenceKey {
+    static let defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = max(value, nextValue()) }
+}
+
+/// Height of the pinned footer. Measured rather than estimated so it keeps up with the rows that come
+/// and go inside it — the add field while editing, the error line when a fetch fails.
+private struct FooterHeightKey: PreferenceKey {
+    static let defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = max(value, nextValue()) }
+}
+
 // MARK: - Panel
 
 struct TickerPopover: View {
@@ -169,6 +201,13 @@ struct TickerPopover: View {
 
     @State private var newSymbol = ""
     @State private var newMarket: Market = .vietnam
+    /// A symbol check is in flight. Blocks a second Add so one Enter-mash can't fire several checks.
+    @State private var checking = false
+    /// Why the last Add didn't go through, shown under the field. nil while there is nothing to say.
+    /// Seeded from the environment for the same reason as `editing` below: the message only appears in
+    /// response to a rejected click, which a snapshot tool cannot perform, and an unrenderable state is
+    /// an unverifiable one. Never set for the app itself.
+    @State private var addError: String? = ProcessInfo.processInfo.environment["STOCKBAR_UI_ADD_ERROR"]
     /// Edit mode. The environment check exists so Tools/uisnap.sh can render this state: an edit row
     /// carries four controls beside a price, which is exactly the layout worth checking, and it is
     /// unreachable from a snapshot tool otherwise. The variable is never set for the app itself, so this
@@ -179,66 +218,142 @@ struct TickerPopover: View {
     /// what to draw in the menu bar, and picks the change up through its didChangeNotification observer.
     @AppStorage("showChangeInMenuBar") private var showChangeInMenuBar = true
 
+    /// visibleFrame height of the display the popover is actually shown on, reported by
+    /// PanelScreenReporter. Seeded with the menu-bar screen so the first layout pass already has a
+    /// sensible number to cap against.
+    @State private var panelScreenHeight: CGFloat = TickerPopover.initialScreenHeight
+    @State private var listHeight: CGFloat = 0
+    @State private var headerHeight: CGFloat = 0
+    @State private var footerHeight: CGFloat = 0
+
+    /// How much of the screen the whole panel may occupy before the list starts scrolling instead of
+    /// pushing the popover further down.
+    private static let panelHeightFraction: CGFloat = 0.9
+
+    /// The tallest the symbol list may get: whatever the screen can spare once the pinned header, the
+    /// pinned footer and this panel's own outer padding have taken their share. The floor keeps a few
+    /// rows visible on a short display rather than letting the footer squeeze the list to nothing.
+    private var maxListHeight: CGFloat {
+        let chrome = headerHeight + footerHeight + pt(12) * 2
+        return max(pt(120), panelScreenHeight * Self.panelHeightFraction - chrome)
+    }
+
+    /// Best guess before the popover's window exists: the display that owns the menu bar, identified by
+    /// its frame origin sitting at (0,0) in AppKit's global space. That is stable, unlike the order of
+    /// `NSScreen.screens` or `NSScreen.main`, which follows keyboard focus.
+    private static var initialScreenHeight: CGFloat {
+        let menuBarScreen = NSScreen.screens.first { $0.frame.origin == .zero }
+            ?? NSScreen.screens.first
+            ?? NSScreen.main
+        return menuBarScreen?.visibleFrame.height ?? 800
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            header
+            pinnedHeader
 
-            Divider().padding(.vertical, pt(6))
-
-            VStack(spacing: pt(7)) {
-                ForEach(Array(watchlist.symbols.enumerated()), id: \.element.id) { index, entry in
-                    HStack(spacing: pt(6)) {
-                        if editing {
-                            Button {
-                                watchlist.togglePinned(entry)
-                            } label: {
-                                Image(systemName: entry.pinnedToMenuBar ? "pin.fill" : "pin.slash")
-                                    .font(uiFont(9))
-                                    .foregroundStyle(entry.pinnedToMenuBar ? Color.accentColor : .secondary)
-                            }
-                            .buttonStyle(.plain)
-                            .help(entry.pinnedToMenuBar ? "Hide from the menu bar" : "Show in the menu bar")
-
-                            // Reorder. Stacked vertically so the pair costs one button's width instead of
-                            // two — this row already carries a symbol, a price and two other buttons.
-                            VStack(spacing: 0) {
-                                reorderButton("chevron.up", disabled: index == 0) {
-                                    watchlist.moveUp(entry)
-                                }
-                                reorderButton("chevron.down", disabled: index == watchlist.symbols.count - 1) {
-                                    watchlist.moveDown(entry)
-                                }
-                            }
-                        }
-
-                        QuoteRow(entry: entry,
-                                 quote: reader.quotes[entry.id],
-                                 history: reader.history[entry.id] ?? [],
-                                 stale: reader.isStale(entry.id),
-                                 showSparkline: !editing)
-
-                        if editing {
-                            Button {
-                                watchlist.remove(entry)
-                            } label: {
-                                Image(systemName: "minus.circle.fill")
-                                    .font(uiFont(10))
-                                    .foregroundStyle(.red)
-                            }
-                            .buttonStyle(.plain)
-                        }
-                    }
+            // Render un-scrolled by default — identical to the plain auto-sizing stack this panel used to
+            // be — so the very first layout pass always has a well-defined height and the popover opens at
+            // its natural size. Only once the list has measured taller than the room the screen can spare
+            // does it switch to a ScrollView, and then with a concrete height (see ListHeightKey).
+            if listHeight > maxListHeight {
+                ScrollView(.vertical) {
+                    symbolList.background(OverlayScrollerConfigurator())
                 }
+                .frame(height: maxListHeight)
+            } else {
+                symbolList
             }
 
-            if editing { addRow }
-
-            Divider().padding(.vertical, pt(6))
-
-            footer
+            pinnedFooter
         }
         .padding(pt(12))
         .frame(width: pt(320))
+        .background(PanelScreenReporter { panelScreenHeight = $0 })
+    }
+
+    /// The watched symbols — the only part of the panel that scrolls. Everything else stays pinned, so
+    /// Refresh, the add field and Quit remain reachable however long the list grows.
+    private var symbolList: some View {
+        VStack(spacing: pt(7)) {
+            ForEach(Array(watchlist.symbols.enumerated()), id: \.element.id) { index, entry in
+                HStack(spacing: pt(6)) {
+                    if editing {
+                        Button {
+                            watchlist.togglePinned(entry)
+                        } label: {
+                            Image(systemName: entry.pinnedToMenuBar ? "pin.fill" : "pin.slash")
+                                .font(uiFont(9))
+                                .foregroundStyle(entry.pinnedToMenuBar ? Color.accentColor : .secondary)
+                        }
+                        .buttonStyle(.plain)
+                        .help(entry.pinnedToMenuBar ? "Hide from the menu bar" : "Show in the menu bar")
+
+                        // Reorder. Stacked vertically so the pair costs one button's width instead of
+                        // two — this row already carries a symbol, a price and two other buttons.
+                        VStack(spacing: 0) {
+                            reorderButton("chevron.up", disabled: index == 0) {
+                                watchlist.moveUp(entry)
+                            }
+                            reorderButton("chevron.down", disabled: index == watchlist.symbols.count - 1) {
+                                watchlist.moveDown(entry)
+                            }
+                        }
+                    }
+
+                    QuoteRow(entry: entry,
+                             quote: reader.quotes[entry.id],
+                             history: reader.history[entry.id] ?? [],
+                             stale: reader.isStale(entry.id),
+                             showSparkline: !editing)
+
+                    if editing {
+                        Button {
+                            watchlist.remove(entry)
+                        } label: {
+                            Image(systemName: "minus.circle.fill")
+                                .font(uiFont(10))
+                                .foregroundStyle(.red)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+            }
+        }
+        .fixedSize(horizontal: false, vertical: true)
+        .background(GeometryReader { proxy in
+            Color.clear.preference(key: ListHeightKey.self, value: proxy.size.height)
+        })
+        .onPreferenceChange(ListHeightKey.self) { listHeight = $0 }
+    }
+
+    /// The header and its divider, measured so the scroll area below knows how much room is left.
+    private var pinnedHeader: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            header
+            Divider().padding(.vertical, pt(6))
+        }
+        .fixedSize(horizontal: false, vertical: true)
+        .background(GeometryReader { proxy in
+            Color.clear.preference(key: HeaderHeightKey.self, value: proxy.size.height)
+        })
+        .onPreferenceChange(HeaderHeightKey.self) { headerHeight = $0 }
+    }
+
+    /// The add field, the divider and the settings. Outside the scroll area on purpose: on a list long
+    /// enough to scroll, adding a symbol would otherwise mean scrolling to the bottom to reach the field,
+    /// and Quit would be just as far away.
+    private var pinnedFooter: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            if editing { addRow }
+            Divider().padding(.vertical, pt(6))
+            footer
+        }
+        .fixedSize(horizontal: false, vertical: true)
+        .background(GeometryReader { proxy in
+            Color.clear.preference(key: FooterHeightKey.self, value: proxy.size.height)
+        })
+        .onPreferenceChange(FooterHeightKey.self) { footerHeight = $0 }
     }
 
     private var header: some View {
@@ -272,21 +387,45 @@ struct TickerPopover: View {
     }
 
     private var addRow: some View {
-        HStack(spacing: pt(6)) {
-            Picker("", selection: $newMarket) {
-                Text("VN").tag(Market.vietnam)
-                Text("Crypto").tag(Market.crypto)
+        VStack(alignment: .leading, spacing: pt(4)) {
+            HStack(spacing: pt(6)) {
+                Picker("", selection: $newMarket) {
+                    Text("VN").tag(Market.vietnam)
+                    Text("Crypto").tag(Market.crypto)
+                }
+                .labelsHidden()
+                .frame(width: pt(84))
+
+                // Typing clears the last verdict: leaving "XYZ isn't listed" under a field that now reads
+                // something else accuses the wrong symbol. Done through the binding rather than
+                // .onChange(of:perform:), which is deprecated, while its replacement is macOS 14+.
+                TextField(newMarket == .vietnam ? "VCB / VNINDEX" : "BTCUSDT",
+                          text: Binding(get: { newSymbol },
+                                        set: { newSymbol = $0; addError = nil }))
+                    .textFieldStyle(.roundedBorder)
+                    .font(uiFont(11))
+                    .onSubmit(addSymbol)
+                    // Deliberately NOT disabled while a check runs: disabling a focused text field drops
+                    // the focus ring, so a rejected symbol would leave the caret gone and the field
+                    // needing another click before it could be corrected. addSymbol guards instead.
+
+                if checking {
+                    ProgressView()
+                        .scaleEffect(0.6 * uiScale)
+                        .frame(width: pt(12), height: pt(12))
+                }
+
+                Button("Add", action: addSymbol)
+                    .disabled(checking || newSymbol.trimmingCharacters(in: .whitespaces).isEmpty)
             }
-            .labelsHidden()
-            .frame(width: pt(84))
 
-            TextField(newMarket == .vietnam ? "VCB / VNINDEX" : "BTCUSDT", text: $newSymbol)
-                .textFieldStyle(.roundedBorder)
-                .font(uiFont(11))
-                .onSubmit(addSymbol)
-
-            Button("Add", action: addSymbol)
-                .disabled(newSymbol.trimmingCharacters(in: .whitespaces).isEmpty)
+            if let addError {
+                Text(addError)
+                    .font(uiFont(9))
+                    .foregroundStyle(.orange)
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
         .padding(.top, pt(8))
     }
@@ -373,8 +512,45 @@ struct TickerPopover: View {
         }
     }
 
+    /// Check the symbol with the venue before it joins the list, and say so when it doesn't exist.
+    ///
+    /// The list used to accept anything typed into it. A misspelled ticker is not rejected by the
+    /// upstreams — the VN board just omits the row and Binance answers 400 — so it landed in the
+    /// watchlist and rendered a dash indefinitely, which looks identical to a feed that is down. The one
+    /// moment the difference can still be explained is here, before the row exists.
     private func addSymbol() {
-        watchlist.add(newSymbol, market: newMarket)
-        newSymbol = ""
+        let typed = newSymbol.trimmingCharacters(in: .whitespaces).uppercased()
+        guard !typed.isEmpty, !checking else { return }
+        // The ticker itself overrules the picker, so BTCUSDT typed against the "VN" default is checked
+        // against Binance rather than being reported as an unlisted Vietnamese equity. See Market.inferred.
+        let market = Market.inferred(for: typed) ?? newMarket
+
+        // Caught here rather than left to Watchlist.add, which drops a duplicate silently — from the
+        // field that is indistinguishable from a rejection, with nothing said either way.
+        if watchlist.symbols.contains(where: { $0.symbol == typed && $0.market == market }) {
+            addError = "\(typed) is already in the list"
+            return
+        }
+
+        checking = true
+        addError = nil
+        Task {
+            let verdict = await reader.validate(typed, market: market)
+            checking = false
+            switch verdict {
+            case .ok:
+                watchlist.add(typed, market: market)
+                newSymbol = ""
+            case .unknown:
+                addError = market == .vietnam
+                    ? "\(typed) isn't listed on HOSE/HNX — check the ticker."
+                    : "\(typed) isn't a pair on Binance — check the ticker."
+            case .unreachable(let why):
+                // Not added. The symbol may well be real, but adding it on an unverified guess is how the
+                // permanent-dash row got here in the first place; the message names the check as the thing
+                // that failed, and pressing Add again retries it.
+                addError = "Couldn't check \(typed) — \(why). Try again."
+            }
+        }
     }
 }

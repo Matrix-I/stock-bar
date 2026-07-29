@@ -106,6 +106,45 @@ final class QuoteReader: ObservableObject {
         return Date().timeIntervalSince(q.asOf) > Self.activeInterval * 1.5
     }
 
+    /// The verdict on a symbol someone is trying to add. Three cases rather than a Bool because "the
+    /// venue has never heard of this" and "the check itself failed" call for different words on screen —
+    /// telling someone their ticker doesn't exist when the real problem was the network would send them
+    /// looking for a typo that isn't there.
+    enum SymbolCheck: Sendable, Equatable {
+        /// The venue knows the symbol and quoted it.
+        case ok
+        /// The venue answered and does not list it: a typo, or a symbol belonging to the other market.
+        case unknown
+        /// The check could not be completed. Carries the reason, for the message.
+        case unreachable(String)
+    }
+
+    /// Ask the venue whether `symbol` exists, before it is allowed into the watchlist.
+    ///
+    /// Worth the round trip because nothing downstream can tell a typo from a dead feed: an unrecognised
+    /// ticker is simply *absent* from the board response, so it joins the list and shows a dash forever,
+    /// looking exactly like a network problem. Checking once at the point of entry is the only place the
+    /// difference is still knowable.
+    ///
+    /// Deliberately does not write to `quotes`: a symbol merely being considered has no row yet, and
+    /// caching a price for it would flash a value into a list it may never join.
+    func validate(_ symbol: String, market: Market) async -> SymbolCheck {
+        let wanted = symbol.trimmingCharacters(in: .whitespaces).uppercased()
+        guard !wanted.isEmpty else { return .unknown }
+        let source: any QuoteSource = market == .vietnam ? vn : crypto
+        do {
+            let quoted = try await source.fetchQuotes(for: [wanted])
+            return quoted.contains { $0.symbol.uppercased() == wanted } ? .ok : .unknown
+        } catch QuoteError.badStatus(400) {
+            // Binance rejects an unknown pair with 400 ("Invalid symbol") instead of returning an empty
+            // result, so this particular status is a verdict on the symbol, not a transport failure. The
+            // VN board takes the other route and just omits the row, which the check above catches.
+            return .unknown
+        } catch {
+            return .unreachable(error.localizedDescription)
+        }
+    }
+
     func refresh() {
         guard !inFlight else {
             refreshQueued = true
