@@ -4,9 +4,30 @@
 import SwiftUI
 import AppKit
 
-/// A minimal line chart of recent closes. Deliberately axis-less and label-less: at ~90×22 points there
-/// is room for the shape of the last hour and nothing else, and a shape is all this needs to answer
-/// "which way has it been going".
+// MARK: - Scale
+
+/// Everything in this panel is sized through `pt`/`uiFont`, which multiply by this.
+///
+/// The panel was asked to render its text 50% larger. Scaling only the fonts would have clipped the
+/// columns — a 66pt symbol column cannot hold "BTCUSDT" at 18pt, and the change line would have gone
+/// back to reading "+24.06 (+…" — so the widths, padding and spacing scale with them. Keeping the
+/// original numbers at each call site means the ratios between elements stay readable, and the factor is
+/// a single edit rather than forty.
+private let uiScale: CGFloat = 1.5
+
+/// A scaled point value, for frames, padding and spacing.
+private func pt(_ value: CGFloat) -> CGFloat { value * uiScale }
+
+/// A scaled system font.
+private func uiFont(_ size: CGFloat, _ weight: Font.Weight = .regular) -> Font {
+    .system(size: size * uiScale, weight: weight)
+}
+
+// MARK: - Sparkline
+
+/// A minimal line chart of recent closes. Deliberately axis-less and label-less: there is room for the
+/// shape of the last session and nothing else, and a shape is all this needs to answer "which way has it
+/// been going".
 struct Sparkline: View {
     let values: [Double]
     let color: Color
@@ -23,11 +44,12 @@ struct Sparkline: View {
                 // A dead-flat series (a stock that hasn't moved all session) would divide by zero on
                 // the normalisation below; pin it to the vertical centre instead.
                 let span = hi - lo
-                // Inset by 1pt top and bottom so a stroke at an extreme isn't clipped by the frame.
+                // Inset top and bottom so a stroke at an extreme isn't clipped by the frame.
+                let inset = pt(1)
                 let points: [CGPoint] = values.enumerated().map { i, v in
                     let x = geo.size.width * Double(i) / Double(values.count - 1)
                     let norm = span > 0 ? (v - lo) / span : 0.5
-                    return CGPoint(x: x, y: 1 + (geo.size.height - 2) * (1 - norm))
+                    return CGPoint(x: x, y: inset + (geo.size.height - inset * 2) * (1 - norm))
                 }
                 let line = Path { p in p.addLines(points) }
                 // A faint fill under the line gives the eye a baseline to read the slope against
@@ -40,12 +62,14 @@ struct Sparkline: View {
                 }
                 ZStack {
                     area.fill(color.opacity(0.14))
-                    line.stroke(color, style: StrokeStyle(lineWidth: 1.4, lineCap: .round, lineJoin: .round))
+                    line.stroke(color, style: StrokeStyle(lineWidth: pt(1.4), lineCap: .round, lineJoin: .round))
                 }
             }
         }
     }
 }
+
+// MARK: - Row
 
 /// One watched symbol.
 struct QuoteRow: View {
@@ -53,43 +77,43 @@ struct QuoteRow: View {
     let quote: Quote?
     let history: [Double]
     let stale: Bool
-    /// Dropped while the watchlist is being edited. The edit controls (pin, up, down, remove) claim about
-    /// 45pt, and keeping the 78pt chart alongside them truncated the change line to "+24.06 (+…" on the
-    /// index rows and wrapped it onto a second line on the others, making the rows different heights. The
-    /// chart is the least useful thing on screen while you're reordering a list, so it yields.
+    /// Dropped while the watchlist is being edited. The edit controls (pin, up, down, remove) claim real
+    /// width, and keeping the chart alongside them truncated the change line to "+24.06 (+…" on the index
+    /// rows and wrapped it onto a second line on the others, making the rows different heights. The chart
+    /// is the least useful thing on screen while you're reordering a list, so it yields.
     var showSparkline = true
 
     private var isIndex: Bool { isIndexSymbol(entry.symbol) }
 
     var body: some View {
-        HStack(spacing: 10) {
-            VStack(alignment: .leading, spacing: 1) {
+        HStack(spacing: pt(10)) {
+            VStack(alignment: .leading, spacing: pt(1)) {
                 Text(entry.symbol.uppercased())
-                    .font(.system(size: 12, weight: .semibold))
+                    .font(uiFont(12, .semibold))
                     .lineLimit(1)
                 Text(entry.market == .vietnam ? (isIndex ? "Index" : "HOSE") : "Binance")
-                    .font(.system(size: 9))
+                    .font(uiFont(9))
                     .foregroundStyle(.secondary)
             }
-            .frame(width: 66, alignment: .leading)
+            .frame(width: pt(66), alignment: .leading)
 
             if let quote {
                 if showSparkline {
                     Sparkline(values: history, color: bandColor(quote.band, market: quote.market))
-                        .frame(width: 78, height: 22)
+                        .frame(width: pt(78), height: pt(22))
                 }
 
-                Spacer(minLength: 4)
+                Spacer(minLength: pt(4))
 
-                VStack(alignment: .trailing, spacing: 1) {
+                VStack(alignment: .trailing, spacing: pt(1)) {
                     Text(priceText(quote))
-                        .font(.system(size: 12, weight: .medium))
+                        .font(uiFont(12, .medium))
                         .monospacedDigit()
                         .foregroundStyle(bandColor(quote.band, market: quote.market))
                         .textSelection(.enabled)
                     if let pct = quote.changePercent, let chg = quote.change {
                         Text("\(bandArrow(quote.band)) \(fmtChange(chg, market: quote.market, isIndex: isIndex)) (\(fmtChangePercent(pct)))")
-                            .font(.system(size: 9))
+                            .font(uiFont(9))
                             .monospacedDigit()
                             .foregroundStyle(bandColor(quote.band, market: quote.market).opacity(0.85))
                             // Never wrap or ellipsise: this line is the whole point of the row, and a
@@ -100,7 +124,7 @@ struct QuoteRow: View {
                 }
             } else {
                 Spacer()
-                Text("—").foregroundStyle(.secondary).font(.system(size: 12))
+                Text("—").foregroundStyle(.secondary).font(uiFont(12))
             }
         }
         .opacity(stale ? 0.5 : 1)
@@ -128,11 +152,13 @@ struct QuoteRow: View {
     }
 }
 
+// MARK: - Panel
+
 struct TickerPopover: View {
     @ObservedObject var reader: QuoteReader
     @ObservedObject var watchlist: Watchlist
     /// Sparkle updater — backs the automatic-check toggle in the footer. @ObservedObject, not a plain
-    /// `let`: the toggle's value lives inside SPUUpdater, so without observing this the checkbox would
+    /// `let`: the toggle's value lives inside SPUUpdater, so without observing this the switch would
     /// write the new value and redraw from the old one.
     @ObservedObject var updater: Updater
     /// Closes this popover and starts a user-initiated Sparkle check; supplied by AppDelegate. The
@@ -144,9 +170,9 @@ struct TickerPopover: View {
     @State private var newSymbol = ""
     @State private var newMarket: Market = .vietnam
     /// Edit mode. The environment check exists so Tools/uisnap.sh can render this state: an edit row
-    /// carries four controls plus a sparkline and a price inside 320pt, which is exactly the layout worth
-    /// checking, and it is unreachable from a snapshot tool otherwise. The variable is never set for the
-    /// app itself, so this is always false in a real launch.
+    /// carries four controls beside a price, which is exactly the layout worth checking, and it is
+    /// unreachable from a snapshot tool otherwise. The variable is never set for the app itself, so this
+    /// is always false in a real launch.
     @State private var editing = ProcessInfo.processInfo.environment["STOCKBAR_UI_EDIT"] != nil
     @State private var launchAtLogin = LoginItem.isEnabled
     /// AppStorage rather than @State: AppDelegate reads this same key out of UserDefaults to decide
@@ -157,25 +183,24 @@ struct TickerPopover: View {
         VStack(alignment: .leading, spacing: 0) {
             header
 
-            Divider().padding(.vertical, 6)
+            Divider().padding(.vertical, pt(6))
 
-            VStack(spacing: 7) {
+            VStack(spacing: pt(7)) {
                 ForEach(Array(watchlist.symbols.enumerated()), id: \.element.id) { index, entry in
-                    HStack(spacing: 6) {
+                    HStack(spacing: pt(6)) {
                         if editing {
                             Button {
                                 watchlist.togglePinned(entry)
                             } label: {
                                 Image(systemName: entry.pinnedToMenuBar ? "pin.fill" : "pin.slash")
-                                    .font(.system(size: 9))
+                                    .font(uiFont(9))
                                     .foregroundStyle(entry.pinnedToMenuBar ? Color.accentColor : .secondary)
                             }
                             .buttonStyle(.plain)
                             .help(entry.pinnedToMenuBar ? "Hide from the menu bar" : "Show in the menu bar")
 
-                            // Reorder. Stacked vertically so the pair costs ~10pt of width instead of
-                            // ~24pt side by side — this row already carries a symbol, a sparkline, a
-                            // price and two other buttons inside 320pt.
+                            // Reorder. Stacked vertically so the pair costs one button's width instead of
+                            // two — this row already carries a symbol, a price and two other buttons.
                             VStack(spacing: 0) {
                                 reorderButton("chevron.up", disabled: index == 0) {
                                     watchlist.moveUp(entry)
@@ -197,7 +222,7 @@ struct TickerPopover: View {
                                 watchlist.remove(entry)
                             } label: {
                                 Image(systemName: "minus.circle.fill")
-                                    .font(.system(size: 10))
+                                    .font(uiFont(10))
                                     .foregroundStyle(.red)
                             }
                             .buttonStyle(.plain)
@@ -208,35 +233,38 @@ struct TickerPopover: View {
 
             if editing { addRow }
 
-            Divider().padding(.vertical, 6)
+            Divider().padding(.vertical, pt(6))
 
             footer
         }
-        .padding(12)
-        .frame(width: 320)
+        .padding(pt(12))
+        .frame(width: pt(320))
     }
 
     private var header: some View {
         HStack {
-            Text("StockBar").font(.system(size: 13, weight: .semibold))
+            Text("StockBar").font(uiFont(13, .semibold))
             // A snapshot build says so; a released one shows the bare version. Without this the only
             // way to tell which build is running is to inspect Info.plist by hand.
             Text(AppInfo.version)
-                .font(.system(size: 9))
+                .font(uiFont(9))
                 .foregroundStyle(AppInfo.isSnapshot ? Color(nsColor: .systemOrange) : .secondary)
                 .help(AppInfo.isSnapshot ? "Unreleased development build" : "Released build")
             if reader.isFetching {
-                ProgressView().controlSize(.small).scaleEffect(0.6).frame(width: 12, height: 12)
+                ProgressView()
+                    .controlSize(.small)
+                    .scaleEffect(0.6 * uiScale)
+                    .frame(width: pt(12), height: pt(12))
             }
             Spacer()
             Button { editing.toggle() } label: {
-                Image(systemName: editing ? "checkmark" : "square.and.pencil").font(.system(size: 10))
+                Image(systemName: editing ? "checkmark" : "square.and.pencil").font(uiFont(10))
             }
             .buttonStyle(.plain)
             .help(editing ? "Done" : "Edit the watchlist")
 
             Button { reader.refresh() } label: {
-                Image(systemName: "arrow.clockwise").font(.system(size: 10))
+                Image(systemName: "arrow.clockwise").font(uiFont(10))
             }
             .buttonStyle(.plain)
             .help("Refresh now")
@@ -244,46 +272,45 @@ struct TickerPopover: View {
     }
 
     private var addRow: some View {
-        HStack(spacing: 6) {
+        HStack(spacing: pt(6)) {
             Picker("", selection: $newMarket) {
                 Text("VN").tag(Market.vietnam)
                 Text("Crypto").tag(Market.crypto)
             }
             .labelsHidden()
-            .frame(width: 84)
+            .frame(width: pt(84))
 
             TextField(newMarket == .vietnam ? "VCB / VNINDEX" : "BTCUSDT", text: $newSymbol)
                 .textFieldStyle(.roundedBorder)
-                .font(.system(size: 11))
+                .font(uiFont(11))
                 .onSubmit(addSymbol)
 
             Button("Add", action: addSymbol)
                 .disabled(newSymbol.trimmingCharacters(in: .whitespaces).isEmpty)
-                .controlSize(.small)
         }
-        .padding(.top, 8)
+        .padding(.top, pt(8))
     }
 
     private var footer: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: pt(6)) {
             // The session line is the answer to "why isn't the price moving?" — without it a closed
             // market is indistinguishable from a broken feed.
-            HStack(spacing: 6) {
+            HStack(spacing: pt(6)) {
                 Circle()
                     .fill(MarketHours.isOpen(.vietnam) ? Color.green : Color.secondary)
-                    .frame(width: 6, height: 6)
+                    .frame(width: pt(6), height: pt(6))
                 Text(MarketHours.statusText(for: .vietnam))
-                    .font(.system(size: 10))
+                    .font(uiFont(10))
                     .foregroundStyle(.secondary)
                 Spacer()
                 if let at = reader.lastSuccessAt {
-                    Text(fmtAsOf(at)).font(.system(size: 10)).foregroundStyle(.secondary)
+                    Text(fmtAsOf(at)).font(uiFont(10)).foregroundStyle(.secondary)
                 }
             }
 
             if let err = reader.lastError {
                 Text(err)
-                    .font(.system(size: 10))
+                    .font(uiFont(10))
                     .foregroundStyle(.orange)
                     .lineLimit(2)
                     .fixedSize(horizontal: false, vertical: true)
@@ -307,14 +334,13 @@ struct TickerPopover: View {
             ))
 
             Button(action: checkForUpdates) {
-                Text("Check for updates…").font(.system(size: 11))
+                Text("Check for updates…").font(uiFont(11))
             }
             .buttonStyle(.link)
 
             HStack {
                 Spacer()
                 Button("Quit StockBar", action: quitAction)
-                    .controlSize(.small)
             }
         }
     }
@@ -324,8 +350,8 @@ struct TickerPopover: View {
     private func reorderButton(_ symbol: String, disabled: Bool, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Image(systemName: symbol)
-                .font(.system(size: 7, weight: .bold))
-                .frame(width: 11, height: 8)
+                .font(uiFont(7, .bold))
+                .frame(width: pt(11), height: pt(8))
         }
         .buttonStyle(.plain)
         .disabled(disabled)
@@ -338,12 +364,11 @@ struct TickerPopover: View {
     /// checkbox in a dark popover does less well.
     private func switchRow(_ label: String, isOn: Binding<Bool>) -> some View {
         HStack {
-            Text(label).font(.system(size: 11))
-            Spacer(minLength: 12)
+            Text(label).font(uiFont(11))
+            Spacer(minLength: pt(12))
             Toggle(label, isOn: isOn)
                 .labelsHidden()
                 .toggleStyle(.switch)
-                .controlSize(.small)
                 .tint(.green)
         }
     }

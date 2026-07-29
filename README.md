@@ -19,9 +19,14 @@ opens a panel with every watched symbol, its intraday sparkline, the daily band,
 editing the list.
 
 The pencil turns on edit mode, which gives each row pin / move up / move down / remove. The sparkline
-hides while editing to make room — four controls plus a chart and a price don't fit in 320pt without
+hides while editing to make room — four controls plus a chart and a price don't fit on one row without
 truncating the change. Pinned symbols are drawn in watchlist order and only the first four get a slot,
 so reordering is also how you choose which ones appear.
+
+Every size in the panel goes through `pt()`/`uiFont()` in `View/TickerPopover.swift`, which multiply by
+`uiScale` (currently `1.5`). Change that one constant to resize the whole panel: scaling the fonts alone
+would clip the columns, so widths, padding and spacing scale with them. The menu-bar label is not
+affected — a status item is capped at the menu bar's own height, so its text cannot grow with the panel.
 
 Prices are shown **in full, never abbreviated or rounded** — the menu bar and the panel call the same
 `fmtPrice` in `Support/Formatting.swift`, so they cannot disagree about what an instrument costs. That
