@@ -53,6 +53,11 @@ struct QuoteRow: View {
     let quote: Quote?
     let history: [Double]
     let stale: Bool
+    /// Dropped while the watchlist is being edited. The edit controls (pin, up, down, remove) claim about
+    /// 45pt, and keeping the 78pt chart alongside them truncated the change line to "+24.06 (+…" on the
+    /// index rows and wrapped it onto a second line on the others, making the rows different heights. The
+    /// chart is the least useful thing on screen while you're reordering a list, so it yields.
+    var showSparkline = true
 
     private var isIndex: Bool { isIndexSymbol(entry.symbol) }
 
@@ -69,8 +74,10 @@ struct QuoteRow: View {
             .frame(width: 66, alignment: .leading)
 
             if let quote {
-                Sparkline(values: history, color: bandColor(quote.band, market: quote.market))
-                    .frame(width: 78, height: 22)
+                if showSparkline {
+                    Sparkline(values: history, color: bandColor(quote.band, market: quote.market))
+                        .frame(width: 78, height: 22)
+                }
 
                 Spacer(minLength: 4)
 
@@ -85,6 +92,10 @@ struct QuoteRow: View {
                             .font(.system(size: 9))
                             .monospacedDigit()
                             .foregroundStyle(bandColor(quote.band, market: quote.market).opacity(0.85))
+                            // Never wrap or ellipsise: this line is the whole point of the row, and a
+                            // second line would make neighbouring rows different heights.
+                            .lineLimit(1)
+                            .fixedSize()
                     }
                 }
             } else {
@@ -132,7 +143,11 @@ struct TickerPopover: View {
 
     @State private var newSymbol = ""
     @State private var newMarket: Market = .vietnam
-    @State private var editing = false
+    /// Edit mode. The environment check exists so Tools/uisnap.sh can render this state: an edit row
+    /// carries four controls plus a sparkline and a price inside 320pt, which is exactly the layout worth
+    /// checking, and it is unreachable from a snapshot tool otherwise. The variable is never set for the
+    /// app itself, so this is always false in a real launch.
+    @State private var editing = ProcessInfo.processInfo.environment["STOCKBAR_UI_EDIT"] != nil
     @State private var launchAtLogin = LoginItem.isEnabled
     /// AppStorage rather than @State: AppDelegate reads this same key out of UserDefaults to decide
     /// what to draw in the menu bar, and picks the change up through its didChangeNotification observer.
@@ -145,7 +160,7 @@ struct TickerPopover: View {
             Divider().padding(.vertical, 6)
 
             VStack(spacing: 7) {
-                ForEach(watchlist.symbols) { entry in
+                ForEach(Array(watchlist.symbols.enumerated()), id: \.element.id) { index, entry in
                     HStack(spacing: 6) {
                         if editing {
                             Button {
@@ -157,12 +172,25 @@ struct TickerPopover: View {
                             }
                             .buttonStyle(.plain)
                             .help(entry.pinnedToMenuBar ? "Hide from the menu bar" : "Show in the menu bar")
+
+                            // Reorder. Stacked vertically so the pair costs ~10pt of width instead of
+                            // ~24pt side by side — this row already carries a symbol, a sparkline, a
+                            // price and two other buttons inside 320pt.
+                            VStack(spacing: 0) {
+                                reorderButton("chevron.up", disabled: index == 0) {
+                                    watchlist.moveUp(entry)
+                                }
+                                reorderButton("chevron.down", disabled: index == watchlist.symbols.count - 1) {
+                                    watchlist.moveDown(entry)
+                                }
+                            }
                         }
 
                         QuoteRow(entry: entry,
                                  quote: reader.quotes[entry.id],
                                  history: reader.history[entry.id] ?? [],
-                                 stale: reader.isStale(entry.id))
+                                 stale: reader.isStale(entry.id),
+                                 showSparkline: !editing)
 
                         if editing {
                             Button {
@@ -261,24 +289,22 @@ struct TickerPopover: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
 
-            Toggle(isOn: $showChangeInMenuBar) {
-                Text("Show change % in the menu bar").font(.system(size: 11))
-            }
-            .toggleStyle(.checkbox)
+            switchRow("Show change % in the menu bar", isOn: $showChangeInMenuBar)
 
-            Toggle(isOn: $launchAtLogin) {
-                Text("Launch at login").font(.system(size: 11))
-            }
-            .toggleStyle(.checkbox)
-            .onChange(of: launchAtLogin) { LoginItem.setEnabled($0) }
+            // The @State mirror is what makes the switch move: LoginItem reads its state from
+            // SMAppService, which publishes nothing, so a binding straight onto it would flip the login
+            // item and then redraw from the old value.
+            switchRow("Launch at login", isOn: Binding(
+                get: { launchAtLogin },
+                set: { launchAtLogin = $0; LoginItem.setEnabled($0) }
+            ))
 
             // Sparkle persists this itself, so it is a direct binding onto the updater rather than an
             // @AppStorage key of ours that would have to be kept in step with Sparkle's own default.
-            Toggle(isOn: Binding(get: { updater.automaticallyChecks },
-                                 set: { updater.automaticallyChecks = $0 })) {
-                Text("Automatically check for updates").font(.system(size: 11))
-            }
-            .toggleStyle(.checkbox)
+            switchRow("Automatically check for updates", isOn: Binding(
+                get: { updater.automaticallyChecks },
+                set: { updater.automaticallyChecks = $0 }
+            ))
 
             Button(action: checkForUpdates) {
                 Text("Check for updates…").font(.system(size: 11))
@@ -290,6 +316,35 @@ struct TickerPopover: View {
                 Button("Quit StockBar", action: quitAction)
                     .controlSize(.small)
             }
+        }
+    }
+
+    /// One half of the up/down reorder control. Disabled rather than hidden at the ends of the list, so
+    /// the rows stay aligned instead of shifting sideways on the first and last entry.
+    private func reorderButton(_ symbol: String, disabled: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: symbol)
+                .font(.system(size: 7, weight: .bold))
+                .frame(width: 11, height: 8)
+        }
+        .buttonStyle(.plain)
+        .disabled(disabled)
+        .foregroundStyle(disabled ? Color.secondary.opacity(0.3) : .secondary)
+        .help(symbol == "chevron.up" ? "Move up" : "Move down")
+    }
+
+    /// A settings row: label on the left, switch on the right. Same shape as stats-bar's Control Center
+    /// so the two apps' panels read alike — and a switch states its on/off position at a glance, which a
+    /// checkbox in a dark popover does less well.
+    private func switchRow(_ label: String, isOn: Binding<Bool>) -> some View {
+        HStack {
+            Text(label).font(.system(size: 11))
+            Spacer(minLength: 12)
+            Toggle(label, isOn: isOn)
+                .labelsHidden()
+                .toggleStyle(.switch)
+                .controlSize(.small)
+                .tint(.green)
         }
     }
 

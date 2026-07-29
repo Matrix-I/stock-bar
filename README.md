@@ -18,6 +18,11 @@ The menu bar shows the symbols you pin, e.g. `VNI 1,704.68 +1.43%  BTC 64,013.97
 opens a panel with every watched symbol, its intraday sparkline, the daily band, and the controls for
 editing the list.
 
+The pencil turns on edit mode, which gives each row pin / move up / move down / remove. The sparkline
+hides while editing to make room — four controls plus a chart and a price don't fit in 320pt without
+truncating the change. Pinned symbols are drawn in watchlist order and only the first four get a slot,
+so reordering is also how you choose which ones appear.
+
 Prices are shown **in full, never abbreviated or rounded** — the menu bar and the panel call the same
 `fmtPrice` in `Support/Formatting.swift`, so they cannot disagree about what an instrument costs. That
 costs width: about 125pt per pinned symbol with the percentage shown. Turn off *Show change % in the

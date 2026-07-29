@@ -66,6 +66,24 @@ final class Watchlist: ObservableObject {
         save()
     }
 
+    /// Move one entry one place towards the front. Written as a swap rather than via
+    /// `move(fromOffsets:toOffset:)` because that API's `toOffset` is an index in the *pre-removal*
+    /// array — moving down one place needs `i + 2`, which is the kind of off-by-one that silently does
+    /// nothing. The order matters beyond the list: the menu bar renders pinned symbols in watchlist
+    /// order, and `pinned` keeps the first four, so reordering is also how you choose which pinned
+    /// symbols get a slot.
+    func moveUp(_ entry: WatchedSymbol) {
+        guard let i = symbols.firstIndex(where: { $0.id == entry.id }), i > 0 else { return }
+        symbols.swapAt(i, i - 1)
+        save()
+    }
+
+    func moveDown(_ entry: WatchedSymbol) {
+        guard let i = symbols.firstIndex(where: { $0.id == entry.id }), i < symbols.count - 1 else { return }
+        symbols.swapAt(i, i + 1)
+        save()
+    }
+
     /// Restore the shipped list — the escape hatch for a watchlist that's been edited into a mess.
     func resetToDefaults() {
         symbols = Self.shipped

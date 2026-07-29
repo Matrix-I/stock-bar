@@ -22,13 +22,17 @@ struct UISnap {
     @MainActor
     static func main() {
         let out = CommandLine.arguments.count > 1 ? CommandLine.arguments[1] : "/tmp/panel.png"
-        let wantsDark = (CommandLine.arguments.count > 2 ? CommandLine.arguments[2] : "dark") != "light"
+        let theme = CommandLine.arguments.count > 2 ? CommandLine.arguments[2] : "dark"
+        let wantsDark = theme != "light"
 
         let app = NSApplication.shared
         app.setActivationPolicy(.accessory)
         // Force the appearance rather than inheriting the machine's: a panel that only renders in one
-        // theme is exactly the kind of bug this tool is for.
-        app.appearance = NSAppearance(named: wantsDark ? .darkAqua : .aqua)
+        // theme is exactly the kind of bug this tool is for. "system" opts out, because forcing an
+        // NSAppearance is itself worth ruling out when a control renders with the wrong colours.
+        if theme != "system" {
+            app.appearance = NSAppearance(named: wantsDark ? .darkAqua : .aqua)
+        }
 
         let watchlist = Watchlist()
         let reader = QuoteReader(watchlist: watchlist)
@@ -48,7 +52,11 @@ struct UISnap {
         let win = NSWindow(contentRect: host.frame,
                            styleMask: [.titled], backing: .buffered, defer: false)
         win.contentView = host
-        win.orderFront(nil)
+        // Key AND active, not just ordered front: AppKit draws controls in an inactive window in their
+        // dimmed state, so a switch that is on renders with a grey track instead of its tint — which
+        // reads as "the tint doesn't work" when the real popover is perfectly fine.
+        if #available(macOS 14.0, *) { app.activate() } else { app.activate(ignoringOtherApps: true) }
+        win.makeKeyAndOrderFront(nil)
 
         // setPanelOpen rather than refresh: sparklines are only fetched while the panel is open, so a
         // plain refresh would render rows with no chart and misrepresent what the app actually shows.
