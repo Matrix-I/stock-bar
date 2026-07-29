@@ -22,7 +22,7 @@
 // PRICE SCALING — verified against both endpoints on 2026-07-29:
 //   • Equity prices come in THOUSANDS of VND: VCB reads 54.6, meaning 54,600 VND. Ceiling, floor and
 //     reference use the same unit. We multiply by 1000 on the way in so `Quote.price` is always real
-//     VND, and Formatting divides again for display. Getting this wrong is a 1000× error on screen.
+//     VND, and PriceFormat renders it. Getting this wrong is a 1000× error on screen.
 //   • Index values are already points (VN-Index 1704.68) and must NOT be scaled.
 // `lot`/`v` are share counts and are never scaled.
 
@@ -63,8 +63,8 @@ actor VNQuoteSource: QuoteSource {
     // MARK: - QuoteSource
 
     func fetchQuotes(for symbols: [String]) async throws -> [Quote] {
-        let indices = symbols.filter { isIndexSymbol($0) }
-        let equities = symbols.filter { !isIndexSymbol($0) }
+        let indices = symbols.filter { Ticker.isIndex($0) }
+        let equities = symbols.filter { !Ticker.isIndex($0) }
 
         // Run the (single) board request and the per-index requests concurrently — the indices are
         // independent of each other and of the board, so there's no reason to serialise them.
@@ -86,7 +86,7 @@ actor VNQuoteSource: QuoteSource {
         // traded — so it doesn't go blank overnight, at a weekend, or over Tết.
         let closes = try await bars(symbol: symbol, resolution: "1", secondsBack: Self.intradayWindow)
             .lastSession().closes
-        let scale = isIndexSymbol(symbol) ? 1.0 : 1000.0
+        let scale = Ticker.isIndex(symbol) ? 1.0 : 1000.0
         return closes.map { $0 * scale }
     }
 

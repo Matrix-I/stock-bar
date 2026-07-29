@@ -106,6 +106,13 @@ final class QuoteReader: ObservableObject {
         return Date().timeIntervalSince(q.asOf) > Self.activeInterval * 1.5
     }
 
+    /// Every currently stale id, for the menu-bar label. Passed as a set rather than having MenuBarLabel
+    /// call `isStale` itself: that keeps the wall clock out of the pure layer, so a label can be compared
+    /// for equality and asserted on in a test.
+    var staleIDs: Set<String> {
+        Set(quotes.keys.filter { isStale($0) })
+    }
+
     /// The verdict on a symbol someone is trying to add. Three cases rather than a Bool because "the
     /// venue has never heard of this" and "the check itself failed" call for different words on screen —
     /// telling someone their ticker doesn't exist when the real problem was the network would send them

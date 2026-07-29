@@ -4,6 +4,9 @@
 // field later (an alert threshold, a display alias) doesn't need a migration. The decode is
 // deliberately forgiving: a blob written by a future version with extra keys still decodes, and a
 // corrupt or absent blob falls back to the defaults instead of launching with an empty menu bar.
+//
+// Everything here is storage and ordering. The one non-obvious rule — that a stored market can be wrong
+// and has to be corrected — is in Core/WatchlistRepair.swift, where it is testable.
 
 import Foundation
 import Combine
@@ -26,7 +29,7 @@ final class Watchlist: ObservableObject {
 
     init() {
         let stored = Self.load()
-        let repaired = stored.map(Self.repairingMarkets)
+        let repaired = stored.map(WatchlistRepair.repaired)
         symbols = repaired ?? Self.shipped
         // Write a repair straight back rather than only holding it in memory, so a corrected market
         // survives even if the list is never edited again.
@@ -102,25 +105,6 @@ final class Watchlist: ObservableObject {
     private func save() {
         guard let data = try? JSONEncoder().encode(symbols) else { return }
         UserDefaults.standard.set(data, forKey: Self.key)
-    }
-
-    /// Rewrite entries filed under a market that cannot serve them. A crypto pair stored as `.vietnam` —
-    /// what the Add row's "VN" default produced before `add` started inferring — makes the app ask a HOSE
-    /// backend for a ticker that does not exist there, and the row shows a dash with nothing to explain
-    /// it. Repairing on load means an existing watchlist heals itself instead of needing every bad row
-    /// deleted and retyped.
-    private static func repairingMarkets(_ entries: [WatchedSymbol]) -> [WatchedSymbol] {
-        var seen = Set<String>()
-        return entries.compactMap { entry in
-            var corrected = entry
-            if let inferred = Market.inferred(for: entry.symbol), inferred != entry.market {
-                corrected = WatchedSymbol(symbol: entry.symbol, market: inferred,
-                                          pinnedToMenuBar: entry.pinnedToMenuBar)
-            }
-            // The id is "market:symbol", so a repair can land on an id that is already in the list (a
-            // watchlist can legitimately hold both a VN and a crypto BTCUSDT). Keep the first.
-            return seen.insert(corrected.id).inserted ? corrected : nil
-        }
     }
 
     private static func load() -> [WatchedSymbol]? {

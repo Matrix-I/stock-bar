@@ -33,11 +33,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var actionTarget: ClickTarget?
     private let popover = NSPopover()
 
-    /// Last glyph cache key, so the status-item image is re-rendered only when what it displays
+    /// What the status item is currently showing, so the image is re-rendered only when the label
     /// actually changes rather than on every tick — the render does real text measurement and CG
     /// drawing, and at a 1 Hz refresh an unconditional rebuild is pure waste for a label that only
-    /// changes once a minute.
-    private var lastGlyphKey: String?
+    /// changes once a minute. MenuBarLabel is Equatable for exactly this comparison.
+    private var lastLabel: MenuBarLabel?
 
     private var outsideClickMonitor: Any?
     private var defaultsObserver: NSObjectProtocol?
@@ -147,66 +147,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     /// Rebuild the status-item image from the pinned symbols, skipping the render when nothing that
-    /// shows has changed.
+    /// shows has changed. Deciding *what* to draw is MenuBarLabel's job and drawing it is
+    /// MenuBarGlyph's; this only wires the two to the status item.
     private func refreshLabel() {
-        let pinned = watchlist.pinned
-        let isDark = NSApp.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
-
-        var entries: [MenuBarEntry] = []
-        // The appearance is folded into the key because the glyph bakes its own neutral text colour
-        // (a coloured image can't be a template), so it would otherwise not re-tint on a theme switch.
-        // The percentage toggle is folded in for the same reason: it changes what's drawn.
-        var key = "\(isDark ? "d" : "l")\(showChangeInMenuBar ? "%" : "")"
-
-        for entry in pinned {
-            guard let q = reader.quotes[entry.id] else {
-                // A pinned symbol with no quote still gets a row. Skipping it meant a symbol that failed
-                // to fetch vanished from the menu bar completely, which is indistinguishable from it
-                // never having been pinned — the user sees a missing ticker and blames the pin, not the
-                // feed. A dash says "pinned, no data", which is the truth.
-                entries.append(MenuBarEntry(label: entry.menuBarLabel,
-                                            price: "—",
-                                            change: nil,
-                                            color: .secondaryLabelColor,
-                                            stale: true))
-                key += "|\(entry.menuBarLabel):—"
-                continue
-            }
-            let isIndex = isIndexSymbol(entry.symbol)
-            let stale = reader.isStale(entry.id)
-            // fmtPrice/fmtChangePercent — the SAME formatters the popover uses, so the menu bar and the
-            // panel can never disagree about what an instrument costs.
-            let price = fmtPrice(q.price, market: q.market, isIndex: isIndex)
-            // Each pinned symbol's percentage costs ~45pt of menu bar. Users with a crowded menu bar
-            // (or many pinned symbols) can trade it away for width; the popover always shows it.
-            let change = showChangeInMenuBar ? q.changePercent.map { fmtChangePercent($0) } : nil
-            let band = q.band
-
-            entries.append(MenuBarEntry(label: entry.menuBarLabel,
-                                        price: price,
-                                        change: change,
-                                        color: bandNSColor(band, market: q.market),
-                                        stale: stale))
-            key += "|\(entry.menuBarLabel):\(price):\(change ?? "-"):\(band):\(stale ? 1 : 0)"
-        }
-
-        guard key != lastGlyphKey else { return }
-        lastGlyphKey = key
-        statusItem.button?.image = tickerMenuBarImage(entries)
-        statusItem.button?.setAccessibilityLabel(accessibilityLabel(entries))
+        let label = MenuBarLabel.make(pinned: watchlist.pinned,
+                                      quotes: reader.quotes,
+                                      staleIDs: reader.staleIDs,
+                                      showChange: showChangeInMenuBar,
+                                      isDark: NSApp.isDarkAppearance)
+        guard label != lastLabel else { return }
+        lastLabel = label
+        statusItem.button?.image = MenuBarGlyph.image(for: label)
+        statusItem.button?.setAccessibilityLabel(label.accessibilityDescription)
     }
 
     private func updateSettingsCache() {
         showChangeInMenuBar = UserDefaults.standard.object(forKey: "showChangeInMenuBar") as? Bool ?? true
-    }
-
-    /// What VoiceOver reads for the item. Rebuilt only when the glyph is, so it stays in step with the
-    /// image without allocating a string every tick.
-    private func accessibilityLabel(_ entries: [MenuBarEntry]) -> String {
-        guard !entries.isEmpty else { return "StockBar, no quotes yet" }
-        return entries
-            .map { "\($0.label) \($0.price)\($0.change.map { c in ", \(c)" } ?? "")" }
-            .joined(separator: "; ")
     }
 }
 

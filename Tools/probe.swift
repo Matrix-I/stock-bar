@@ -75,10 +75,9 @@ struct Probe {
         print(row("SYMBOL", "PRICE", "REF", "CHANGE", "BAND", "MENU BAR"))
 
         for q in quotes.sorted(by: { $0.symbol < $1.symbol }) {
-            let isIndex = isIndexSymbol(q.symbol)
-            let price = fmtPrice(q.price, market: q.market, isIndex: isIndex)
-            let ref = q.reference.map { fmtPrice($0, market: q.market, isIndex: isIndex) } ?? "—"
-            let chg = q.changePercent.map { fmtChangePercent($0) } ?? "—"
+            let price = PriceFormat.price(q.price, market: q.market, isIndex: q.isIndex)
+            let ref = q.reference.map { PriceFormat.price($0, market: q.market, isIndex: q.isIndex) } ?? "—"
+            let chg = q.changePercent.map { PriceFormat.percent($0) } ?? "—"
             // The exact string the menu bar would render. The price and percentage come from the same
             // formatters as the PRICE/CHANGE columns above, so if this column ever disagrees with them
             // the shared-formatter rule has been broken somewhere.
@@ -146,17 +145,18 @@ struct Probe {
         _ = NSApplication.shared
 
         let ordered = sorted ? quotes.sorted { $0.symbol < $1.symbol } : quotes
-        let entries = ordered.map { q -> MenuBarEntry in
-            let isIndex = isIndexSymbol(q.symbol)
-            return MenuBarEntry(
-                label: WatchedSymbol(symbol: q.symbol, market: q.market, pinnedToMenuBar: true).menuBarLabel,
-                price: fmtPrice(q.price, market: q.market, isIndex: isIndex),
-                change: q.changePercent.map { fmtChangePercent($0) },
-                color: bandNSColor(q.band, market: q.market),
-                stale: false
-            )
-        }
-        let image = tickerMenuBarImage(entries)
+        // Through MenuBarLabel.make rather than by hand, so the probe renders the label the app would
+        // render — including the dash row for a symbol with no quote.
+        let label = MenuBarLabel.make(
+            pinned: ordered.map { WatchedSymbol(symbol: $0.symbol, market: $0.market, pinnedToMenuBar: true) },
+            quotes: Dictionary(uniqueKeysWithValues: ordered.map {
+                ("\($0.market.rawValue):\($0.symbol)", $0)
+            }),
+            staleIDs: [],
+            showChange: true,
+            isDark: NSApp.isDarkAppearance
+        )
+        let image = MenuBarGlyph.image(for: label)
 
         // Draw onto a mid-grey backdrop at 2× so the light-mode text (which is near-black) is visible
         // in the file at all — a PNG of black-on-transparent looks empty in most viewers.
