@@ -183,6 +183,12 @@ struct TickerPopover: View {
     private var header: some View {
         HStack {
             Text("StockBar").font(.system(size: 13, weight: .semibold))
+            // A snapshot build says so; a released one shows the bare version. Without this the only
+            // way to tell which build is running is to inspect Info.plist by hand.
+            Text(AppInfo.version)
+                .font(.system(size: 9))
+                .foregroundStyle(AppInfo.isSnapshot ? Color(nsColor: .systemOrange) : .secondary)
+                .help(AppInfo.isSnapshot ? "Unreleased development build" : "Released build")
             if reader.isFetching {
                 ProgressView().controlSize(.small).scaleEffect(0.6).frame(width: 12, height: 12)
             }
