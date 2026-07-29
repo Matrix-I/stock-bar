@@ -499,7 +499,7 @@ struct TickerPopover: View {
 
             HStack {
                 Spacer()
-                Button("Quit StockBar", action: quitAction)
+                Button("Quit", action: quitAction)
             }
         }
     }
