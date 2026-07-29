@@ -267,7 +267,12 @@ struct TickerPopover: View {
 
             pinnedFooter
         }
-        .padding(pt(12))
+        // Only the vertical padding belongs to the panel. The horizontal padding is applied inside each
+        // region — including inside the scroll area — so the ScrollView spans the panel's full width and
+        // the overlay scroller has a gutter of its own to sit in. With the padding out here the scroll
+        // view ended exactly where the content did, and the scroller was drawn on top of the change
+        // figures at the right-hand edge. maxListHeight subtracts this same pt(12) * 2.
+        .padding(.vertical, pt(12))
         .frame(width: pt(320))
         .background(PanelScreenReporter { panelScreenHeight = $0 })
     }
@@ -320,6 +325,8 @@ struct TickerPopover: View {
                 }
             }
         }
+        // Inside the scroll area on purpose — see the note on the panel's own padding.
+        .padding(.horizontal, pt(12))
         .fixedSize(horizontal: false, vertical: true)
         .background(GeometryReader { proxy in
             Color.clear.preference(key: ListHeightKey.self, value: proxy.size.height)
@@ -333,6 +340,7 @@ struct TickerPopover: View {
             header
             Divider().padding(.vertical, pt(6))
         }
+        .padding(.horizontal, pt(12))
         .fixedSize(horizontal: false, vertical: true)
         .background(GeometryReader { proxy in
             Color.clear.preference(key: HeaderHeightKey.self, value: proxy.size.height)
@@ -349,6 +357,7 @@ struct TickerPopover: View {
             Divider().padding(.vertical, pt(6))
             footer
         }
+        .padding(.horizontal, pt(12))
         .fixedSize(horizontal: false, vertical: true)
         .background(GeometryReader { proxy in
             Color.clear.preference(key: FooterHeightKey.self, value: proxy.size.height)
