@@ -9,6 +9,15 @@ cd "$(dirname "$0")"
 
 APP=StockBar
 
+# The single source of truth for the version — release.sh rewrites this file and nothing else, so the
+# bundle can never disagree with the git tag. During development it carries a -SNAPSHOT suffix, which
+# is dropped for the release commit and restored (at the next version) immediately after.
+VERSION=$(tr -d '[:space:]' < VERSION)
+# CFBundleVersion must be purely numeric-and-dots — LaunchServices and SMAppService compare it as a
+# version, and "-SNAPSHOT" makes that comparison undefined. So the suffix lives only in
+# CFBundleShortVersionString, which is free-form and is what the user actually sees.
+BUNDLE_VERSION=${VERSION%%-*}
+
 # By default, relaunch the app once it's built so "build finished" actually means "the new version is
 # running". Pass --no-launch to only produce the bundle.
 RELAUNCH=1
@@ -18,7 +27,7 @@ for arg in "$@"; do
     esac
 done
 
-echo "🔨 Compiling $APP (Sources/*.swift) ..."
+echo "🔨 Compiling $APP $VERSION (Sources/*.swift) ..."
 SOURCES=$(find Sources -name '*.swift')
 # -target pins the deployment target. WITHOUT it swiftc defaults to the build machine's OS, which
 # (a) produces a binary that won't load on anything older, contradicting the LSMinimumSystemVersion
@@ -41,7 +50,7 @@ if [ -f "AppIcon.icns" ]; then
     cp "AppIcon.icns" "$APP.app/Contents/Resources/AppIcon.icns"
 fi
 
-cat > "$APP.app/Contents/Info.plist" <<'PLIST'
+cat > "$APP.app/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -52,8 +61,8 @@ cat > "$APP.app/Contents/Info.plist" <<'PLIST'
     <key>CFBundleName</key>             <string>StockBar</string>
     <key>CFBundleIconFile</key>         <string>AppIcon</string>
     <key>CFBundlePackageType</key>      <string>APPL</string>
-    <key>CFBundleShortVersionString</key><string>1.0.0</string>
-    <key>CFBundleVersion</key>          <string>1.0.0</string>
+    <key>CFBundleShortVersionString</key><string>$VERSION</string>
+    <key>CFBundleVersion</key>          <string>$BUNDLE_VERSION</string>
     <key>LSMinimumSystemVersion</key>   <string>13.0</string>
     <!-- Menu-bar-only app: no Dock icon, no app menu. -->
     <key>LSUIElement</key>              <true/>
@@ -97,7 +106,7 @@ LSREGISTER=/System/Library/Frameworks/CoreServices.framework/Versions/A/Framewor
 touch "$APP.app"
 
 echo ""
-echo "✅ Done: $APP.app"
+echo "✅ Done: $APP.app ($VERSION)"
 
 if [ "$RELAUNCH" -eq 1 ]; then
     echo "🔄 Relaunching $APP ..."

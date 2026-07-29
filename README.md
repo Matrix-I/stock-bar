@@ -71,6 +71,9 @@ scaled. Getting this wrong is a 1000× error on screen.
 ## Layout
 
 ```
+VERSION                        the version, and the only place it is written
+build_app.sh                   compile + bundle + sign + relaunch
+release.sh                     cut a tagged release with a .dmg on GitHub
 Sources/
   App/StockBarApp.swift        NSStatusItem + NSPopover, glyph cache, entry point
   Model/Quote.swift            the shape every source normalises into; PriceBand
@@ -78,7 +81,7 @@ Sources/
   Reader/VNQuoteSource.swift   VPS board + TradingView UDF history
   Reader/CryptoQuoteSource.swift  Binance ticker + klines
   Reader/QuoteReader.swift     cadence, fan-out, last-good-quote store
-  Support/                     Formatting, MarketHours, Watchlist, PollingTimer, LoginItem
+  Support/                     Formatting, MarketHours, Watchlist, PollingTimer, LoginItem, AppInfo
   View/MenuBarGlyph.swift      bakes the coloured status-bar NSImage
   View/TickerPopover.swift     the panel: rows, sparklines, settings
 Tools/probe.sh                 exercises the data layer from the command line
@@ -88,6 +91,38 @@ Tools/probe.sh                 exercises the data layer from the command line
 multi-coloured and `MenuBarExtra` renders its label as a monochrome template, and `MenuBarExtra`'s
 presentation state desynchronises when its window is closed from outside, producing the familiar
 "first click does nothing" bug.
+
+## Versioning and releases
+
+`VERSION` at the repo root is the only place the version is written. `build_app.sh` stamps it into
+`Info.plist`; the panel header shows it back, in orange while it still carries `-SNAPSHOT`. During
+development it always does — a snapshot version is what says "this is not the build someone
+downloaded".
+
+`release.sh` cuts a release, and is the only thing that rewrites `VERSION`:
+
+```bash
+./release.sh --dry-run     # build the .dmg and print the notes; touches nothing remote
+./release.sh               # drop -SNAPSHOT → build → tag → publish → bump to the next -SNAPSHOT
+./release.sh --next patch  # bump the patch component afterwards instead of the minor one
+```
+
+So `1.0.0-SNAPSHOT` releases as tag `v1.0.0` and the branch continues on `1.1.0-SNAPSHOT`. The default
+bump is **minor**, because the reason to keep developing after a release is normally a new feature.
+
+Release notes are generated from the conventional-commit subjects since the previous tag, grouped into
+Added / Fixed / Other. `chore:` commits are dropped; anything that doesn't parse lands under Other
+rather than being silently lost.
+
+The uploaded `.dmg` is **ad-hoc signed and not notarized**, so Gatekeeper refuses to open it on any
+other machine until the quarantine flag is cleared — the generated notes tell the downloader to run
+`xattr -dr com.apple.quarantine /Applications/StockBar.app`. Notarizing instead would need a paid
+Apple Developer account.
+
+`release.sh` refuses to start unless the tree is clean, the branch is `main`, the checkout is not
+behind `origin/main`, the tag is free both locally and on the remote, and `gh` is active as the
+account that owns the repo — it checks that rather than switching, since `gh auth switch` is global
+state that would affect the user's other shells.
 
 ## Debugging
 
