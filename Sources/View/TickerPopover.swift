@@ -120,8 +120,10 @@ struct QuoteRow: View {
 struct TickerPopover: View {
     @ObservedObject var reader: QuoteReader
     @ObservedObject var watchlist: Watchlist
-    /// Sparkle updater — backs the automatic-check toggle in the footer.
-    let updater: Updater
+    /// Sparkle updater — backs the automatic-check toggle in the footer. @ObservedObject, not a plain
+    /// `let`: the toggle's value lives inside SPUUpdater, so without observing this the checkbox would
+    /// write the new value and redraw from the old one.
+    @ObservedObject var updater: Updater
     /// Closes this popover and starts a user-initiated Sparkle check; supplied by AppDelegate. The
     /// popover has to close first: it is `.applicationDefined`, so it would otherwise stay open on top
     /// of the update window it just spawned.

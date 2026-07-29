@@ -50,9 +50,10 @@ struct UISnap {
         win.contentView = host
         win.orderFront(nil)
 
-        // Let the fetch land and SwiftUI settle, so the rows show real quotes instead of placeholders.
-        reader.refresh()
-        RunLoop.main.run(until: Date().addingTimeInterval(4))
+        // setPanelOpen rather than refresh: sparklines are only fetched while the panel is open, so a
+        // plain refresh would render rows with no chart and misrepresent what the app actually shows.
+        reader.setPanelOpen(true)
+        RunLoop.main.run(until: Date().addingTimeInterval(6))
 
         let size = host.fittingSize
         host.frame = NSRect(origin: .zero, size: size)

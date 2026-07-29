@@ -44,11 +44,15 @@ final class QuoteReader: ObservableObject {
 
     private lazy var poll = PollingTimer { [weak self] in self?.refresh() }
     private var panelOpen = false
-    /// Guards against overlapping refreshes. A tick that lands while the previous one is still in
-    /// flight is dropped rather than queued: with a 12-second timeout and a 60-second cadence that can
-    /// only happen when the network is badly degraded, and piling requests on a struggling link makes
-    /// it worse.
+    /// Guards against overlapping refreshes: a second fetch is never started while one is in flight,
+    /// because piling requests on a struggling link makes it worse.
     private var inFlight = false
+    /// Set when a refresh arrives while one is in flight, and honoured once it finishes. Without this,
+    /// opening the popover (which refreshes, including the slower sparkline fetch) made the Refresh
+    /// button do *nothing at all* for the next few seconds — the request was dropped silently, which
+    /// reads as a dead button. At most one is remembered, so a burst of clicks collapses into one
+    /// follow-up fetch rather than a queue.
+    private var refreshQueued = false
     private var wakeObserver: NSObjectProtocol?
     private var watchlistChanges: AnyCancellable?
 
@@ -87,16 +91,26 @@ final class QuoteReader: ObservableObject {
         if open { refresh() }
     }
 
-    /// Whether `id`'s quote is old enough to render as stale. One and a half intervals: long enough
-    /// that an ordinary tick never trips it, short enough to notice a feed that has stopped.
+    /// Whether `id`'s quote is old enough to render as stale. One and a half intervals while the market
+    /// is trading: long enough that an ordinary tick never trips it, short enough to notice a feed that
+    /// has stopped.
+    ///
+    /// A CLOSED market is never stale. Its last close is the most current price that exists, so ageing it
+    /// out greys the whole board every evening and makes a perfectly healthy feed look broken. It also
+    /// removed a real inconsistency: index quotes carry the timestamp of their last 1-minute bar (15:00),
+    /// while the equity board reports the fetch time, so after the close the indices greyed out and the
+    /// equities beside them did not — same data, two different appearances.
     func isStale(_ id: String) -> Bool {
         guard let q = quotes[id] else { return false }
-        let limit = (MarketHours.isOpen(q.market) ? Self.activeInterval : Self.idleInterval) * 1.5
-        return Date().timeIntervalSince(q.asOf) > limit
+        guard MarketHours.isOpen(q.market) else { return false }
+        return Date().timeIntervalSince(q.asOf) > Self.activeInterval * 1.5
     }
 
     func refresh() {
-        guard !inFlight else { return }
+        guard !inFlight else {
+            refreshQueued = true
+            return
+        }
         inFlight = true
         isFetching = true
 
@@ -139,6 +153,14 @@ final class QuoteReader: ObservableObject {
             self.inFlight = false
             self.isFetching = false
             self.applyCadence()
+
+            // Honour a request that arrived mid-flight. Cleared before recursing, so this can only run
+            // one extra fetch — it cannot become a loop even if clicks keep landing during that fetch
+            // (they just set the flag again for one more round).
+            if self.refreshQueued {
+                self.refreshQueued = false
+                self.refresh()
+            }
         }
     }
 

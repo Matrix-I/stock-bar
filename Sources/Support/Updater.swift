@@ -38,10 +38,19 @@ final class Updater: ObservableObject {
         updater.checkForUpdates()
     }
 
-    /// Backs the "Automatically check for updates" toggle. Sparkle persists this itself, so there is
-    /// no @AppStorage key of ours to keep in step.
+    /// Backs the "Automatically check for updates" toggle. Sparkle persists this itself, so there is no
+    /// @AppStorage key of ours to keep in step.
+    ///
+    /// The `objectWillChange.send()` is load-bearing. The value lives inside SPUUpdater, so there is no
+    /// @Published property for SwiftUI to observe: without an explicit signal the checkbox writes the new
+    /// value and then redraws from the *old* one, and the tick never appears to move. (stats-bar hides
+    /// this because its panel observes five ~1 Hz readers, so it re-renders within a second anyway; this
+    /// popover only re-renders when a quote lands, up to a minute later.)
     var automaticallyChecks: Bool {
         get { updater.automaticallyChecksForUpdates }
-        set { updater.automaticallyChecksForUpdates = newValue }
+        set {
+            objectWillChange.send()
+            updater.automaticallyChecksForUpdates = newValue
+        }
     }
 }

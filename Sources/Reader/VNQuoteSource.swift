@@ -35,10 +35,30 @@ actor VNQuoteSource: QuoteSource {
     private static let boardBase = "https://bgapidatafeed.vps.com.vn/getliststockdata/"
     private static let histBase = "https://histdatafeed.vps.com.vn/tradingview/history"
 
-    /// Previous-session close per index symbol, with the local day it was fetched for. Refetched when
-    /// the day rolls over; an index's reference cannot change intraday, so caching it turns 2
-    /// requests-per-index-per-minute into 1.
-    private var indexReference: [String: (day: Int, close: Double)] = [:]
+    /// How far back to ask for 1-minute bars. NOT "long enough to cover today's session" — that was a
+    /// bug: an 8-hour window measured from *now* slides off the end of the session, so after ~23:00 ICT
+    /// it contained no bars at all and every index silently lost its quote (which then dropped it from
+    /// the menu bar entirely). It has to be long enough to still contain a whole session when the last
+    /// one was days ago: a weekend plus a couple of public holidays. The bars for the most recent
+    /// session are then selected from whatever comes back, so the extra span costs a bigger response,
+    /// never a wrong reading.
+    private static let intradayWindow: TimeInterval = 7 * 86400
+    /// Daily bars are only needed for the reference close, so a month is ample even across Tết.
+    private static let dailyWindow: TimeInterval = 30 * 86400
+
+    /// ICT. HOSE runs on it and Vietnam has no DST, so a fixed offset is exact — but the identifier is
+    /// used where available so a reader isn't left wondering whether the offset is right.
+    private static let ict = TimeZone(identifier: "Asia/Ho_Chi_Minh") ?? TimeZone(secondsFromGMT: 7 * 3600)!
+    private static var ictCalendar: Calendar {
+        var c = Calendar(identifier: .gregorian)
+        c.timeZone = ict
+        return c
+    }
+
+    /// Daily bars per index symbol, with the ICT day they were fetched for. Refetched when the day rolls
+    /// over: daily bars only change once a session, so caching turns two requests per index per minute
+    /// into one.
+    private var dailyCache: [String: (day: Int, bars: Bars)] = [:]
 
     // MARK: - QuoteSource
 
@@ -61,10 +81,11 @@ actor VNQuoteSource: QuoteSource {
     }
 
     func fetchHistory(for symbol: String) async throws -> [Double] {
-        // 1-minute bars over the last 8 hours: long enough to cover a full session (09:00–15:00 ICT)
-        // from any point in the day, short enough that a closed-market fetch still returns today's
-        // shape rather than a week of noise.
-        let closes = try await bars(symbol: symbol, resolution: "1", secondsBack: 8 * 3600).closes
+        // Ask for a week of 1-minute bars, then keep only the most recent session's. The sparkline still
+        // shows one session's shape rather than a week of noise, but it is the last session that actually
+        // traded — so it doesn't go blank overnight, at a weekend, or over Tết.
+        let closes = try await bars(symbol: symbol, resolution: "1", secondsBack: Self.intradayWindow)
+            .lastSession().closes
         let scale = isIndexSymbol(symbol) ? 1.0 : 1000.0
         return closes.map { $0 * scale }
     }
@@ -108,43 +129,76 @@ actor VNQuoteSource: QuoteSource {
     // MARK: - Indices
 
     private func fetchIndex(_ symbol: String) async throws -> Quote {
-        let intraday = try await bars(symbol: symbol, resolution: "1", secondsBack: 8 * 3600)
-        guard let last = intraday.closes.last else { throw QuoteError.noData(symbol) }
+        // The daily series is needed for the reference close, and doubles as the price source when the
+        // intraday feed returns nothing for the window — so an index keeps a quote even if the 1-minute
+        // feed is briefly unavailable, instead of disappearing from the menu bar.
+        let daily = try await dailySeries(symbol)
+        let session = (try? await bars(symbol: symbol,
+                                       resolution: "1",
+                                       secondsBack: Self.intradayWindow))?.lastSession()
+
+        guard let priceBar = session?.last ?? daily.last else { throw QuoteError.noData(symbol) }
 
         return Quote(
             symbol: symbol.uppercased(),
             market: .vietnam,
-            price: last,
-            reference: try? await previousClose(symbol),
+            price: priceBar.close,
+            reference: referenceClose(from: daily, pricedAt: priceBar.time),
             ceiling: nil,           // an index has no daily band
             floor: nil,
-            volume: intraday.volumes.reduce(0, +),
-            asOf: intraday.lastBarDate ?? Date()
+            volume: session?.totalVolume ?? priceBar.volume,
+            asOf: priceBar.time
         )
     }
 
-    /// The previous session's close, cached for the calendar day. On a cache miss it reads the last two
-    /// daily bars and takes the *second to last* — the final one is today's still-forming bar.
-    private func previousClose(_ symbol: String) async throws -> Double {
-        let today = Calendar.current.ordinality(of: .day, in: .era, for: Date()) ?? 0
-        if let hit = indexReference[symbol], hit.day == today { return hit.close }
+    /// The daily bars, cached for the ICT day. They only change once a session.
+    private func dailySeries(_ symbol: String) async throws -> Bars {
+        let today = Self.ictCalendar.ordinality(of: .day, in: .era, for: Date()) ?? 0
+        if let hit = dailyCache[symbol], hit.day == today { return hit.bars }
+        let fetched = try await bars(symbol: symbol, resolution: "1D", secondsBack: Self.dailyWindow)
+        dailyCache[symbol] = (today, fetched)
+        return fetched
+    }
 
-        // 14 days back, not 2: weekends and a public holiday run can easily leave fewer than two
-        // trading days in a short window, and an empty result here would leave the row with no
-        // percentage at all.
-        let daily = try await bars(symbol: symbol, resolution: "1D", secondsBack: 14 * 86400)
-        guard daily.closes.count >= 2 else { throw QuoteError.noData("\(symbol) daily") }
-        let prev = daily.closes[daily.closes.count - 2]
-        indexReference[symbol] = (today, prev)
-        return prev
+    /// The close the change is measured against: the last daily bar from a session BEFORE the one the
+    /// price belongs to.
+    ///
+    /// Selecting by date rather than by "second to last" is what makes this right at every hour. Taking
+    /// `count - 2` assumes the final daily bar is the priced session's own — true intraday, but wrong
+    /// before the open, at a weekend, or whenever the daily feed hasn't published today's bar yet, and
+    /// each of those cases silently compares against the wrong day and prints a wrong percentage.
+    private func referenceClose(from daily: Bars, pricedAt priceTime: Date) -> Double? {
+        let cal = Self.ictCalendar
+        return daily.bars.last { !cal.isDate($0.time, inSameDayAs: priceTime) && $0.time < priceTime }?.close
     }
 
     // MARK: - TradingView UDF history
 
+    /// A parsed slice of the UDF feed.
+    ///
+    /// Stored as one array of (time, close, volume) triples rather than three parallel arrays: the feed
+    /// can carry a null in one series and not the others, and three independent compactMaps would then
+    /// shift the closes against the times — attributing a price to the wrong minute, with nothing to
+    /// signal it had happened.
     private struct Bars {
-        let closes: [Double]
-        let volumes: [Double]
-        let lastBarDate: Date?
+        struct Bar {
+            let time: Date
+            let close: Double
+            let volume: Double
+        }
+        let bars: [Bar]
+
+        var closes: [Double] { bars.map(\.close) }
+        var last: Bar? { bars.last }
+        var totalVolume: Double { bars.reduce(0) { $0 + $1.volume } }
+
+        /// The bars sharing the final bar's ICT calendar day — i.e. the most recent trading session,
+        /// whether that turns out to be today or last Friday.
+        func lastSession() -> Bars {
+            guard let end = bars.last else { return self }
+            let cal = VNQuoteSource.ictCalendar
+            return Bars(bars: bars.filter { cal.isDate($0.time, inSameDayAs: end.time) })
+        }
     }
 
     private func bars(symbol: String, resolution: String, secondsBack: TimeInterval) async throws -> Bars {
@@ -168,13 +222,20 @@ actor VNQuoteSource: QuoteSource {
         guard let status = root["s"] as? String else { throw QuoteError.malformed("history: no status") }
         guard status == "ok" else { throw QuoteError.noData(symbol) }
 
-        let closes = (root["c"] as? [Any])?.compactMap { HTTP.num($0) } ?? []
-        let volumes = (root["v"] as? [Any])?.compactMap { HTTP.num($0) } ?? []
-        let times = (root["t"] as? [Any])?.compactMap { HTTP.num($0) } ?? []
-        guard !closes.isEmpty else { throw QuoteError.noData(symbol) }
+        // Zip the series by index so a bar is only kept when it has both a timestamp and a close.
+        let rawTimes = root["t"] as? [Any] ?? []
+        let rawCloses = root["c"] as? [Any] ?? []
+        let rawVolumes = root["v"] as? [Any] ?? []
 
-        return Bars(closes: closes,
-                    volumes: volumes,
-                    lastBarDate: times.last.map { Date(timeIntervalSince1970: $0) })
+        var parsed: [Bars.Bar] = []
+        parsed.reserveCapacity(min(rawTimes.count, rawCloses.count))
+        for i in 0..<min(rawTimes.count, rawCloses.count) {
+            guard let t = HTTP.num(rawTimes[i]), let c = HTTP.num(rawCloses[i]) else { continue }
+            let v = i < rawVolumes.count ? (HTTP.num(rawVolumes[i]) ?? 0) : 0
+            parsed.append(Bars.Bar(time: Date(timeIntervalSince1970: t), close: c, volume: v))
+        }
+        guard !parsed.isEmpty else { throw QuoteError.noData(symbol) }
+
+        return Bars(bars: parsed)
     }
 }

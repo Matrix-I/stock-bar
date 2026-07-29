@@ -160,7 +160,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         for entry in pinned {
             guard let q = reader.quotes[entry.id] else {
-                key += "|\(entry.symbol):—"
+                // A pinned symbol with no quote still gets a row. Skipping it meant a symbol that failed
+                // to fetch vanished from the menu bar completely, which is indistinguishable from it
+                // never having been pinned — the user sees a missing ticker and blames the pin, not the
+                // feed. A dash says "pinned, no data", which is the truth.
+                entries.append(MenuBarEntry(label: entry.menuBarLabel,
+                                            price: "—",
+                                            change: nil,
+                                            color: .secondaryLabelColor,
+                                            stale: true))
+                key += "|\(entry.menuBarLabel):—"
                 continue
             }
             let isIndex = isIndexSymbol(entry.symbol)
