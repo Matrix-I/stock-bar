@@ -76,15 +76,14 @@ struct Probe {
 
         for q in quotes.sorted(by: { $0.symbol < $1.symbol }) {
             let isIndex = isIndexSymbol(q.symbol)
-            let price = q.market == .vietnam ? fmtVNPrice(q.price, isIndex: isIndex) : fmtCryptoPrice(q.price)
-            let ref = q.reference.map { q.market == .vietnam ? fmtVNPrice($0, isIndex: isIndex) : fmtCryptoPrice($0) } ?? "—"
+            let price = fmtPrice(q.price, market: q.market, isIndex: isIndex)
+            let ref = q.reference.map { fmtPrice($0, market: q.market, isIndex: isIndex) } ?? "—"
             let chg = q.changePercent.map { fmtChangePercent($0) } ?? "—"
-            // The exact string the menu bar would render for this quote — including its own shorter
-            // label and one-decimal percentage — so a formatting regression is visible here rather than
-            // only on screen.
+            // The exact string the menu bar would render. The price and percentage come from the same
+            // formatters as the PRICE/CHANGE columns above, so if this column ever disagrees with them
+            // the shared-formatter rule has been broken somewhere.
             let label = WatchedSymbol(symbol: q.symbol, market: q.market, pinnedToMenuBar: true).menuBarLabel
-            let compact = q.changePercent.map { fmtChangePercentCompact($0) } ?? "—"
-            let menuBar = "\(label) \(fmtMenuBarPrice(q.price, market: q.market, isIndex: isIndex)) \(compact)"
+            let menuBar = "\(label) \(price) \(chg)"
             print(row(q.symbol, price, ref, chg, "\(q.band)", menuBar))
         }
 
@@ -151,8 +150,8 @@ struct Probe {
             let isIndex = isIndexSymbol(q.symbol)
             return MenuBarEntry(
                 label: WatchedSymbol(symbol: q.symbol, market: q.market, pinnedToMenuBar: true).menuBarLabel,
-                price: fmtMenuBarPrice(q.price, market: q.market, isIndex: isIndex),
-                change: q.changePercent.map { fmtChangePercentCompact($0) },
+                price: fmtPrice(q.price, market: q.market, isIndex: isIndex),
+                change: q.changePercent.map { fmtChangePercent($0) },
                 color: bandNSColor(q.band, market: q.market),
                 stale: false
             )

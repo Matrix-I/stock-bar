@@ -97,7 +97,7 @@ struct QuoteRow: View {
     }
 
     private func priceText(_ q: Quote) -> String {
-        q.market == .vietnam ? fmtVNPrice(q.price, isIndex: isIndex) : fmtCryptoPrice(q.price)
+        fmtPrice(q.price, market: q.market, isIndex: isIndex)
     }
 
     /// The tooltip carries what doesn't fit in the row: the daily band, volume, and how old the quote
@@ -105,11 +105,11 @@ struct QuoteRow: View {
     private var helpText: String {
         guard let q = quote else { return "No data yet" }
         var parts: [String] = []
-        if let c = q.ceiling { parts.append("Trần \(fmtVNPrice(c, isIndex: false))") }
-        if let f = q.floor { parts.append("Sàn \(fmtVNPrice(f, isIndex: false))") }
+        if let c = q.ceiling { parts.append("Trần \(fmtPrice(c, market: q.market, isIndex: false))") }
+        if let f = q.floor { parts.append("Sàn \(fmtPrice(f, market: q.market, isIndex: false))") }
         if let r = q.reference {
-            parts.append(q.market == .vietnam ? "TC \(fmtVNPrice(r, isIndex: isIndex))"
-                                              : "24h open \(fmtCryptoPrice(r))")
+            let label = q.market == .vietnam ? "TC" : "24h open"
+            parts.append("\(label) \(fmtPrice(r, market: q.market, isIndex: isIndex))")
         }
         if let v = q.volume { parts.append("Vol \(fmtVolume(v))") }
         parts.append(fmtAsOf(q.asOf))

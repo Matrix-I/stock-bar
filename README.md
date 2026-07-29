@@ -14,9 +14,14 @@ needed: `build_app.sh` compiles with `swiftc` and assembles the `.app` bundle by
 
 ## What it shows
 
-The menu bar shows the symbols you pin, e.g. `VNI 1705 +1.4%  BTC 64.2k +1.3%`. Clicking it opens a
-panel with every watched symbol, its intraday sparkline, the daily band, and the controls for editing
-the list.
+The menu bar shows the symbols you pin, e.g. `VNI 1,704.68 +1.43%  BTC 64,013.97 +0.19%`. Clicking it
+opens a panel with every watched symbol, its intraday sparkline, the daily band, and the controls for
+editing the list.
+
+Prices are shown **in full, never abbreviated or rounded** — the menu bar and the panel call the same
+`fmtPrice` in `Support/Formatting.swift`, so they cannot disagree about what an instrument costs. That
+costs width: about 125pt per pinned symbol with the percentage shown. Turn off *Show change % in the
+menu bar* in the panel to get roughly 45pt of that back per symbol.
 
 Colours follow the **Vietnamese board convention**, which is not the Western one:
 

@@ -153,10 +153,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
             let isIndex = isIndexSymbol(entry.symbol)
             let stale = reader.isStale(entry.id)
-            let price = fmtMenuBarPrice(q.price, market: q.market, isIndex: isIndex)
-            // Each pinned symbol's percentage costs ~35pt of menu bar. Users with a crowded menu bar
+            // fmtPrice/fmtChangePercent — the SAME formatters the popover uses, so the menu bar and the
+            // panel can never disagree about what an instrument costs.
+            let price = fmtPrice(q.price, market: q.market, isIndex: isIndex)
+            // Each pinned symbol's percentage costs ~45pt of menu bar. Users with a crowded menu bar
             // (or many pinned symbols) can trade it away for width; the popover always shows it.
-            let change = showChangeInMenuBar ? q.changePercent.map { fmtChangePercentCompact($0) } : nil
+            let change = showChangeInMenuBar ? q.changePercent.map { fmtChangePercent($0) } : nil
             let band = q.band
 
             entries.append(MenuBarEntry(label: entry.menuBarLabel,
