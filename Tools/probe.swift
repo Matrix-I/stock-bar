@@ -1,0 +1,186 @@
+// probe.swift — a command-line harness that exercises the app's data layer and prints what it got.
+// Not part of the app: build_app.sh globs Sources/ only, so this file is never compiled into the
+// bundle. It exists because a menu-bar app gives you nowhere to look when a fetch misbehaves.
+//
+// Run:
+//   ./Tools/probe.sh                 # the shipped defaults
+//   ./Tools/probe.sh VCB FPT BTCUSDT # specific symbols (crypto detected by a USDT/USDC suffix)
+
+import Foundation
+import AppKit
+
+/// Pad/align a table row by hand. NOT String(format:) with %s — a Swift String bridged into a C
+/// `%s` conversion is a segfault, and width specifiers on `%@` are unreliable. Padding is counted in
+/// Characters so the box-drawing and "—" placeholders line up like the ASCII does.
+private func row(_ symbol: String, _ price: String, _ ref: String,
+                 _ change: String, _ band: String, _ menuBar: String) -> String {
+    func pad(_ s: String, _ width: Int, right: Bool = false) -> String {
+        let gap = max(0, width - s.count)
+        return right ? String(repeating: " ", count: gap) + s : s + String(repeating: " ", count: gap)
+    }
+    return [pad(symbol, 10), pad(price, 12, right: true), pad(ref, 12, right: true),
+            pad(change, 10, right: true), pad(band, 10, right: true), " " + menuBar].joined(separator: " ")
+}
+
+@main
+struct Probe {
+    static func main() async {
+        let args = Array(CommandLine.arguments.dropFirst())
+        let requested = args.isEmpty
+            ? Watchlist.shipped.map { ($0.symbol, $0.market) }
+            : args.map { arg -> (String, Market) in
+                let s = arg.uppercased()
+                let isCrypto = s.hasSuffix("USDT") || s.hasSuffix("USDC")
+                return (s, isCrypto ? .crypto : .vietnam)
+            }
+
+        let vnSymbols = requested.filter { $0.1 == .vietnam }.map(\.0)
+        let cryptoSymbols = requested.filter { $0.1 == .crypto }.map(\.0)
+
+        print("StockBar data probe · \(Date())")
+        print("HOSE session: \(MarketHours.statusText(for: .vietnam))")
+        print(String(repeating: "─", count: 78))
+
+        var quotes: [Quote] = []
+
+        if !vnSymbols.isEmpty {
+            let source = VNQuoteSource()
+            do {
+                let t0 = Date()
+                let got = try await source.fetchQuotes(for: vnSymbols)
+                print(String(format: "VN     %2d/%2d symbols in %.2fs", got.count, vnSymbols.count,
+                             Date().timeIntervalSince(t0)))
+                quotes += got
+                let missing = Set(vnSymbols).subtracting(got.map { $0.symbol })
+                if !missing.isEmpty { print("       ⚠ no data: \(missing.sorted().joined(separator: ", "))") }
+            } catch {
+                print("VN     ✗ \(error.localizedDescription)")
+            }
+        }
+
+        if !cryptoSymbols.isEmpty {
+            let source = CryptoQuoteSource()
+            do {
+                let t0 = Date()
+                let got = try await source.fetchQuotes(for: cryptoSymbols)
+                print(String(format: "Crypto %2d/%2d symbols in %.2fs", got.count, cryptoSymbols.count,
+                             Date().timeIntervalSince(t0)))
+                quotes += got
+            } catch {
+                print("Crypto ✗ \(error.localizedDescription)")
+            }
+        }
+
+        print(String(repeating: "─", count: 78))
+        print(row("SYMBOL", "PRICE", "REF", "CHANGE", "BAND", "MENU BAR"))
+
+        for q in quotes.sorted(by: { $0.symbol < $1.symbol }) {
+            let isIndex = isIndexSymbol(q.symbol)
+            let price = q.market == .vietnam ? fmtVNPrice(q.price, isIndex: isIndex) : fmtCryptoPrice(q.price)
+            let ref = q.reference.map { q.market == .vietnam ? fmtVNPrice($0, isIndex: isIndex) : fmtCryptoPrice($0) } ?? "—"
+            let chg = q.changePercent.map { fmtChangePercent($0) } ?? "—"
+            // The exact string the menu bar would render for this quote — including its own shorter
+            // label and one-decimal percentage — so a formatting regression is visible here rather than
+            // only on screen.
+            let label = WatchedSymbol(symbol: q.symbol, market: q.market, pinnedToMenuBar: true).menuBarLabel
+            let compact = q.changePercent.map { fmtChangePercentCompact($0) } ?? "—"
+            let menuBar = "\(label) \(fmtMenuBarPrice(q.price, market: q.market, isIndex: isIndex)) \(compact)"
+            print(row(q.symbol, price, ref, chg, "\(q.band)", menuBar))
+        }
+
+        // Sparklines are fetched separately by the reader (only while the popover is open), so check
+        // them separately too.
+        print(String(repeating: "─", count: 78))
+        for (symbol, market) in requested {
+            let source: QuoteSource = market == .vietnam ? VNQuoteSource() : CryptoQuoteSource()
+            do {
+                let closes = try await source.fetchHistory(for: symbol)
+                let range = closes.isEmpty ? "—" : "\(closes.min()!) … \(closes.max()!)"
+                print("history \(symbol): \(closes.count) bars, range \(range)")
+            } catch {
+                print("history \(symbol): ✗ \(error.localizedDescription)")
+            }
+        }
+
+        // Render the real menu-bar glyph to a PNG. The status-bar image is otherwise the one part of
+        // the app you cannot inspect without taking a screenshot of the whole display — this renders it
+        // through the same tickerMenuBarImage() the app uses, so colour, spacing and total width can be
+        // checked directly.
+        if let out = ProcessInfo.processInfo.environment["GLYPH_OUT"] {
+            // GLYPH_DEMO renders one synthetic quote per PriceBand instead of the live ones. Live data
+            // is almost never simultaneously up, down, ceiling-locked and floor-locked, so this is the
+            // only practical way to eyeball the whole Vietnamese colour convention at once — green up,
+            // red down, purple trần, cyan sàn, yellow tham chiếu.
+            if ProcessInfo.processInfo.environment["GLYPH_DEMO"] != nil {
+                renderBandDemo(to: out)
+            } else {
+                renderGlyph(quotes: quotes, to: out)
+            }
+        }
+    }
+
+    /// One synthetic VN equity per band, at a plausible price, so every colour is on screen together.
+    @MainActor
+    static func renderBandDemo(to path: String) {
+        // Reference 50,000 with a ±7% HOSE band: ceiling 53,500, floor 46,500.
+        let ref = 50_000.0, ceiling = 53_500.0, floor = 46_500.0
+        let cases: [(String, Double)] = [
+            ("CEIL", ceiling),   // trần   → purple
+            ("UP",   51_000),    // tăng   → green
+            ("REF",  ref),       // tham chiếu → yellow
+            ("DOWN", 48_000),    // giảm   → red
+            ("FLOOR", floor),    // sàn    → cyan
+        ]
+        let quotes = cases.map { name, price in
+            Quote(symbol: name, market: .vietnam, price: price, reference: ref,
+                  ceiling: ceiling, floor: floor, volume: nil, asOf: Date())
+        }
+        print(String(repeating: "─", count: 78))
+        for q in quotes { print("  \(q.symbol) → \(q.band)") }
+        renderGlyph(quotes: quotes, to: path, sorted: false)
+    }
+
+    @MainActor
+    static func renderGlyph(quotes: [Quote], to path: String, sorted: Bool = true) {
+        // tickerMenuBarImage reads NSApp.effectiveAppearance to pick its neutral text colour, so the
+        // shared application has to exist before it is called.
+        _ = NSApplication.shared
+
+        let ordered = sorted ? quotes.sorted { $0.symbol < $1.symbol } : quotes
+        let entries = ordered.map { q -> MenuBarEntry in
+            let isIndex = isIndexSymbol(q.symbol)
+            return MenuBarEntry(
+                label: WatchedSymbol(symbol: q.symbol, market: q.market, pinnedToMenuBar: true).menuBarLabel,
+                price: fmtMenuBarPrice(q.price, market: q.market, isIndex: isIndex),
+                change: q.changePercent.map { fmtChangePercentCompact($0) },
+                color: bandNSColor(q.band, market: q.market),
+                stale: false
+            )
+        }
+        let image = tickerMenuBarImage(entries)
+
+        // Draw onto a mid-grey backdrop at 2× so the light-mode text (which is near-black) is visible
+        // in the file at all — a PNG of black-on-transparent looks empty in most viewers.
+        let scale: CGFloat = 2
+        let pad: CGFloat = 8
+        let size = NSSize(width: (image.size.width + pad * 2) * scale,
+                          height: (image.size.height + pad * 2) * scale)
+        guard let rep = NSBitmapImageRep(bitmapDataPlanes: nil,
+                                         pixelsWide: Int(size.width), pixelsHigh: Int(size.height),
+                                         bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true,
+                                         isPlanar: false, colorSpaceName: .deviceRGB,
+                                         bytesPerRow: 0, bitsPerPixel: 0) else { return }
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: rep)
+        NSColor(white: 0.55, alpha: 1).setFill()
+        NSRect(origin: .zero, size: size).fill()
+        image.draw(in: NSRect(x: pad * scale, y: pad * scale,
+                              width: image.size.width * scale, height: image.size.height * scale))
+        NSGraphicsContext.restoreGraphicsState()
+
+        guard let data = rep.representation(using: .png, properties: [:]) else { return }
+        try? data.write(to: URL(fileURLWithPath: path))
+        print(String(repeating: "─", count: 78))
+        print("menu-bar glyph: \(Int(image.size.width))×\(Int(image.size.height))pt → \(path)")
+    }
+}

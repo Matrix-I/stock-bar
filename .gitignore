@@ -1,0 +1,9 @@
+StockBar.app/
+StockBar
+.build/
+*.dmg
+.claude/
+.idea/
+AppIcon.iconset/
+AppIcon_1024.png
+.DS_Store
