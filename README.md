@@ -9,8 +9,13 @@ account, no Python — the app talks to both over `URLSession`.
 open StockBar.app
 ```
 
+```bash
+./run_tests.sh            # unit tests over Sources/Core — use this, not a bare `swift test`
+```
+
 Requires macOS 13+ and the Xcode **Command Line Tools** (`xcode-select --install`). Full Xcode is not
-needed: `build_app.sh` compiles with `swiftc` and assembles the `.app` bundle by hand.
+needed: `build_app.sh` compiles with `swiftc` and assembles the `.app` bundle by hand, and `run_tests.sh`
+exists because SwiftPM cannot locate swift-testing under the Command Line Tools by itself.
 
 ## Installing a downloaded release
 
@@ -115,27 +120,59 @@ scaled. Getting this wrong is a 1000× error on screen.
 
 ## Layout
 
+`Sources/` is split by layer, and the layers only depend downwards:
+`View` → `Store` → `Reader` → `Core`, with `System` and `Update` off to the side.
+
 ```
 build_app.sh                   the VERSION line, compile, bundle, embed Sparkle, sign, relaunch
 release.sh                     cut a tagged release with a .dmg on GitHub, then bump
 fetch_sparkle.sh               vendor the pinned Sparkle framework + tools (gitignored)
 update_appcast.sh              EdDSA-sign a .dmg and add it to appcast.xml
 appcast.xml                    the Sparkle feed, served raw from GitHub
+Package.swift + run_tests.sh   unit tests over Sources/Core; they do NOT build the app
 Sources/
-  App/StockBarApp.swift        NSStatusItem + NSPopover, glyph cache, entry point
-  Model/Quote.swift            the shape every source normalises into; PriceBand
-  Reader/QuoteSource.swift     shared URLSession + lenient JSON number coercion
-  Reader/VNQuoteSource.swift   VPS board + TradingView UDF history
-  Reader/CryptoQuoteSource.swift  Binance ticker + klines
-  Reader/QuoteReader.swift     cadence, fan-out, last-good-quote store
-  Support/                     Formatting, MarketHours, Watchlist, PollingTimer, LoginItem, AppInfo
-  Support/Updater.swift        Sparkle wrapper; UpdateUserDriver.swift is the compact update window
-  View/MenuBarGlyph.swift      bakes the coloured status-bar NSImage
-  View/TickerPopover.swift     the panel: rows, sparklines, settings
-  View/AppKitBridges.swift     which screen the popover is on; thin overlay scrollers
+  Core/                        the pure layer — Foundation only, and the only code the tests compile
+    Market.swift               the two venues; inferring one from a ticker; Ticker.isIndex
+    Quote.swift                the shape every source normalises into; PriceBand and its arrow
+    WatchedSymbol.swift        one configured row: its id, its menu-bar alias, its venue line
+    MarketHours.swift          HOSE session windows, and the status line that explains them
+    PriceFormat.swift          every number → the string on screen
+    WatchlistRepair.swift      refile a symbol stored under a market that cannot serve it
+    MenuBarLabel.swift         what the menu bar says, as an Equatable value
+  Reader/                      the venues
+    QuoteSource.swift          the protocol both implement, and QuoteError
+    HTTPClient.swift           shared URLSession + lenient JSON number coercion
+    VNQuoteSource.swift        VPS board + TradingView UDF history
+    CryptoQuoteSource.swift    Binance ticker + klines
+  Store/                       the observable state the UI binds to
+    QuoteReader.swift          cadence, fan-out, last-good-quote store, add-time validation
+    Watchlist.swift            the user's symbols, persisted to UserDefaults
+  System/                      AppInfo, LoginItem, PollingTimer
+  Update/                      Sparkle wrapper + the compact update window
+  View/
+    Design/Theme.swift         the design tokens: scale, spacing, sizes, type
+    Design/BandStyle.swift     band → colour, in both SwiftUI and AppKit spellings
+    Design/MeasuredHeight.swift  .measuringHeight(into:) — how the panel sizes its scroll area
+    Design/AppKitBridges.swift   which screen the popover is on; thin overlay scrollers
+    MenuBar/MenuBarGlyph.swift   bakes the coloured status-bar NSImage
+    MenuBar/MenuBarStyle.swift   the glyph's own (unscaled) tokens
+    Panel/TickerPopover.swift    the panel's layout and the scroll decision
+    Panel/                       PanelHeader, SymbolList, QuoteRow, Sparkline,
+                                 AddSymbolField, SettingsFooter
+  App/StockBarApp.swift        NSStatusItem + NSPopover, entry point
+Tests/StockBarCoreTests/       53 tests over Sources/Core
 Tools/probe.sh                 exercises the data layer from the command line
 Tools/uisnap.sh                renders the popover to a PNG (no Screen Recording permission needed)
 ```
+
+Two structural rules are worth knowing before adding anything:
+
+- **`Sources/Core` is pure** — Foundation only, no network, no `UserDefaults`, no AppKit or SwiftUI, no
+  `ObservableObject`. `run_tests.sh` greps for violations and fails the run, so it is enforced rather
+  than merely documented. Derivation belongs there, where it can be tested; effects belong outside it.
+- **The panel is sized only through `Theme`.** No raw point values or `.system(size:)` in
+  `Sources/View/Panel`. Everything is scaled by `Theme.scale`, so a literal at a call site is one element
+  that silently stops matching the rest of the panel.
 
 `NSStatusItem` rather than SwiftUI's `MenuBarExtra`, for two reasons: the label must be
 multi-coloured and `MenuBarExtra` renders its label as a monochrome template, and `MenuBarExtra`'s
@@ -228,7 +265,22 @@ GLYPH_OUT=/tmp/g.png ./Tools/probe.sh     # also render the real menu-bar label 
 GLYPH_DEMO=1 GLYPH_OUT=/tmp/b.png ./Tools/probe.sh   # render all five band colours
 ```
 
-The probe compiles the app's own Model/Support/Reader layers, so what it prints is what the app sees.
+The probe compiles the app's own Core/Reader/Store layers and the menu-bar glyph, so what it prints — and
+the PNG it renders — is what the app itself would produce. It excludes only `App`, `Update` and
+`View/Panel`, the three directories that would pull in `@main` or Sparkle.
+
+There is also a unit suite, which covers the derivation the probe can only show you:
+
+```bash
+./run_tests.sh                            # all 53
+./run_tests.sh --filter PriceFormat       # one suite
+```
+
+It compiles `Sources/Core` only. That directory is kept free of I/O and live objects precisely so the
+suite is deterministic — `run_tests.sh` greps for forbidden imports and fails before running a single
+test if something impure has moved in. A green run therefore says something about the formatting, the
+band classification, the session gate and the menu-bar label, and nothing at all about the fetch paths:
+that is what the probe is for.
 
 To look at the panel itself:
 
