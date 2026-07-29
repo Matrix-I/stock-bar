@@ -23,6 +23,17 @@ private func uiFont(_ size: CGFloat, _ weight: Font.Weight = .regular) -> Font {
     .system(size: size * uiScale, weight: weight)
 }
 
+/// The settings block below the last divider is deliberately a fifth smaller than the rows above it. It is
+/// chrome you set once rather than data you read, and at the panel's 1.5× scale it was competing with the
+/// prices for attention. Expressed as a factor instead of pre-shrunk literals so the numbers at each call
+/// site stay directly comparable with the rows' own `uiFont(...)` sizes.
+private let footerScale: CGFloat = 0.8
+
+/// A scaled system font for the footer's settings block.
+private func footerFont(_ size: CGFloat, _ weight: Font.Weight = .regular) -> Font {
+    uiFont(size * footerScale, weight)
+}
+
 // MARK: - Sparkline
 
 /// A minimal line chart of recent closes. Deliberately axis-less and label-less: there is room for the
@@ -448,17 +459,17 @@ struct TickerPopover: View {
                     .fill(MarketHours.isOpen(.vietnam) ? Color.green : Color.secondary)
                     .frame(width: pt(6), height: pt(6))
                 Text(MarketHours.statusText(for: .vietnam))
-                    .font(uiFont(10))
+                    .font(footerFont(10))
                     .foregroundStyle(.secondary)
                 Spacer()
                 if let at = reader.lastSuccessAt {
-                    Text(fmtAsOf(at)).font(uiFont(10)).foregroundStyle(.secondary)
+                    Text(fmtAsOf(at)).font(footerFont(10)).foregroundStyle(.secondary)
                 }
             }
 
             if let err = reader.lastError {
                 Text(err)
-                    .font(uiFont(10))
+                    .font(footerFont(10))
                     .foregroundStyle(.orange)
                     .lineLimit(2)
                     .fixedSize(horizontal: false, vertical: true)
@@ -482,7 +493,7 @@ struct TickerPopover: View {
             ))
 
             Button(action: checkForUpdates) {
-                Text("Check for updates…").font(uiFont(11))
+                Text("Check for updates…").font(footerFont(11))
             }
             .buttonStyle(.link)
 
@@ -512,7 +523,7 @@ struct TickerPopover: View {
     /// checkbox in a dark popover does less well.
     private func switchRow(_ label: String, isOn: Binding<Bool>) -> some View {
         HStack {
-            Text(label).font(uiFont(11))
+            Text(label).font(footerFont(11))
             Spacer(minLength: pt(12))
             Toggle(label, isOn: isOn)
                 .labelsHidden()
