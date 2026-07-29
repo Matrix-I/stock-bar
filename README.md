@@ -12,6 +12,28 @@ open StockBar.app
 Requires macOS 13+ and the Xcode **Command Line Tools** (`xcode-select --install`). Full Xcode is not
 needed: `build_app.sh` compiles with `swiftc` and assembles the `.app` bundle by hand.
 
+## Installing a downloaded release
+
+The `.dmg` attached to a [release](https://github.com/Matrix-I/stock-bar/releases) is **ad-hoc signed and
+not notarized**. There is no paid Apple Developer account behind this app, so the bundle carries no
+Developer ID signature for Gatekeeper to check against Apple. macOS quarantines anything arriving from a
+browser and then refuses to open it — usually with *"StockBar is damaged and can't be opened"*, which is
+misleading: nothing is damaged, the signature is simply not one Apple vouches for.
+
+Drag the app to `/Applications`, then clear the quarantine flag:
+
+```bash
+xattr -dr com.apple.quarantine /Applications/StockBar.app
+```
+
+Once per download, not once per launch. Two cases need it and one doesn't:
+
+- **Building from source** never does — the flag is written by whatever downloaded the file, not by the
+  compiler, so a locally built bundle has none.
+- **Updates the app installs itself** never do either — Sparkle unpacks the archive with its own
+  machinery rather than through a browser, so the replacement bundle is not flagged. Only the first,
+  hand-downloaded copy is.
+
 ## What it shows
 
 The menu bar shows the symbols you pin, e.g. `VNI 1,704.68 +1.43%  BTC 64,013.97 +0.19%`. Clicking it
@@ -22,6 +44,19 @@ The pencil turns on edit mode, which gives each row pin / move up / move down / 
 hides while editing to make room — four controls plus a chart and a price don't fit on one row without
 truncating the change. Pinned symbols are drawn in watchlist order and only the first four get a slot,
 so reordering is also how you choose which ones appear.
+
+The symbol list **scrolls** once it grows past what the screen can hold — 90% of the display's usable
+height, measured on whichever display the popover actually opened on. Below that the panel is exactly as
+tall as its contents, so a four-row watchlist has no empty space. The header and the footer never scroll:
+Refresh, the add field, the settings and Quit stay reachable at any list length.
+
+**Adding a symbol checks it with the venue first.** Neither upstream rejects a bad ticker outright — the
+Vietnamese board just omits the row and Binance answers `400` — so a typo used to join the list and render
+a dash forever, indistinguishable from a feed that was down. The add field now asks for a quote before
+committing the row, and says which of the two happened. The market picker is only a hint: a ticker ending
+in a stablecoin quote (`BTCUSDT`, `ETHUSDC`) is filed under Binance whatever the picker says, because
+sending it to a HOSE backend can only ever fail. An existing watchlist with symbols on the wrong market is
+repaired on load.
 
 Every size in the panel goes through `pt()`/`uiFont()` in `View/TickerPopover.swift`, which multiply by
 `uiScale` (currently `1.5`). Change that one constant to resize the whole panel: scaling the fonts alone
@@ -97,6 +132,7 @@ Sources/
   Support/Updater.swift        Sparkle wrapper; UpdateUserDriver.swift is the compact update window
   View/MenuBarGlyph.swift      bakes the coloured status-bar NSImage
   View/TickerPopover.swift     the panel: rows, sparklines, settings
+  View/AppKitBridges.swift     which screen the popover is on; thin overlay scrollers
 Tools/probe.sh                 exercises the data layer from the command line
 Tools/uisnap.sh                renders the popover to a PNG (no Screen Recording permission needed)
 ```
@@ -128,10 +164,9 @@ Release notes are generated from the conventional-commit subjects since the prev
 Added / Fixed / Other. `chore:` commits are dropped; anything that doesn't parse lands under Other
 rather than being silently lost.
 
-The uploaded `.dmg` is **ad-hoc signed and not notarized**, so Gatekeeper refuses to open it on any
-other machine until the quarantine flag is cleared — the generated notes tell the downloader to run
-`xattr -dr com.apple.quarantine /Applications/StockBar.app`. Notarizing instead would need a paid
-Apple Developer account.
+The generated notes end with the `xattr -dr com.apple.quarantine` step from *Installing a downloaded
+release* above, because the uploaded `.dmg` is ad-hoc signed and every downloader will hit Gatekeeper
+without it.
 
 `release.sh` refuses to start unless the tree is clean, the branch is `main`, the checkout is not
 behind `origin/main`, the tag is free both locally and on the remote, and `gh` is active as the
@@ -200,12 +235,20 @@ To look at the panel itself:
 ```bash
 ./Tools/uisnap.sh /tmp/panel.png          # dark
 ./Tools/uisnap.sh /tmp/panel-light.png light
+STOCKBAR_UI_EDIT=1 ./Tools/uisnap.sh /tmp/edit.png          # the edit-mode row layout
+STOCKBAR_UI_WATCHLIST=VCB,MBB,HPG,FPT ./Tools/uisnap.sh /tmp/long.png   # append real tickers
 ```
 
 `uisnap` hosts the real `TickerPopover` in a window and caches its display into a PNG. It exists because
 `screencapture` of the actual panel fails here without Screen Recording permission, which would leave
-every layout change unverifiable from a terminal. Caveat: `Bundle.main` is the tool, not `StockBar.app`,
-so the header renders the version as `dev` — check the real value against `Info.plist`.
+every layout change unverifiable from a terminal. The two environment variables reach states the tool
+can't otherwise click its way into: `STOCKBAR_UI_EDIT` turns on edit mode, and `STOCKBAR_UI_WATCHLIST`
+appends symbols so a list long enough to scroll can be rendered — the shipped default is four rows, which
+never reaches the cap. Neither is ever set for the app itself.
+
+Two caveats. `Bundle.main` is the tool, not `StockBar.app`, so the header renders the version as `dev`;
+check the real value against `Info.plist`. And `cacheDisplay` does not capture an `NSSwitch`'s on-state
+tint, so a switch that is on renders with a grey track — the tool cannot confirm switch colour.
 
 ### Behind a TLS-inspecting proxy
 
