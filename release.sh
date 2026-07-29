@@ -7,8 +7,9 @@
 #   ./release.sh               # the real thing, with a confirmation prompt
 #   ./release.sh --next patch  # bump to x.y.(z+1)-SNAPSHOT afterwards instead of x.(y+1).0-SNAPSHOT
 #
-# VERSION is the only file that carries the version. build_app.sh stamps it into Info.plist and this
-# script is the only thing that rewrites it, so the bundle, the tag and the release can't drift apart.
+# The version lives in exactly one line of build_app.sh (VERSION="x.y.z-SNAPSHOT"), which stamps it
+# into Info.plist. This script rewrites that line — drop the suffix, release, bump — so the bundle, the
+# git tag, the appcast and the GitHub release can't drift apart.
 
 set -euo pipefail
 cd "$(dirname "$0")"
@@ -42,11 +43,21 @@ while [ $# -gt 0 ]; do
 done
 
 # ── Version arithmetic ────────────────────────────────────────────────────────────────────────────
-SNAPSHOT_VERSION=$(tr -d '[:space:]' < VERSION)
+# Read and write the single VERSION="..." line in build_app.sh. The pattern is anchored to the whole
+# line, so it cannot match anything else in the script; read_version returning two lines (which would
+# mean two assignments) makes the write verification below fail rather than silently picking one.
+read_version() { sed -n -E 's|^VERSION="(.*)"$|\1|p' build_app.sh; }
+write_version() {
+    sed -i '' -E "s|^VERSION=\".*\"\$|VERSION=\"$1\"|" build_app.sh
+    [ "$(read_version)" = "$1" ] || die "could not write VERSION=\"$1\" into build_app.sh"
+}
+
+SNAPSHOT_VERSION=$(read_version)
+[ -n "$SNAPSHOT_VERSION" ] || die "no VERSION=\"...\" line found in build_app.sh."
 case "$SNAPSHOT_VERSION" in
     *-SNAPSHOT) ;;
-    *) die "VERSION is '$SNAPSHOT_VERSION', which has no -SNAPSHOT suffix. Either a release is already
-   in progress or the post-release bump never ran — fix VERSION by hand before releasing." ;;
+    *) die "build_app.sh says VERSION=\"$SNAPSHOT_VERSION\", which has no -SNAPSHOT suffix. Either a
+   release is already in progress or the post-release bump never ran — fix it by hand first." ;;
 esac
 RELEASE_VERSION=${SNAPSHOT_VERSION%-SNAPSHOT}
 [[ "$RELEASE_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] \
@@ -72,7 +83,7 @@ CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
 
 [ -z "$(git status --porcelain)" ] \
     || die "the working tree is dirty. Commit or stash first — the release commit must contain only
-   the VERSION change."
+   the version bump and the appcast entry."
 
 # if/then rather than `check && die`: an AND-list whose left side fails is fine mid-script, but it
 # returns non-zero, which under `set -e` would abort the moment one of these is refactored into a
@@ -161,13 +172,12 @@ if [ "$DRY_RUN" -eq 0 ] && [ "$ASSUME_YES" -eq 0 ]; then
 fi
 
 # ── Build the release artifacts ───────────────────────────────────────────────────────────────────
-# VERSION is rewritten before the build so the bundle carries the released version. If anything below
-# fails before the commit, put the snapshot back — a half-released tree with a bare version in VERSION
-# is exactly the state the preflight above refuses to start from.
-restore_snapshot() { printf '%s\n' "$SNAPSHOT_VERSION" > VERSION; }
-trap restore_snapshot EXIT
+# The version is rewritten before the build so the bundle carries the released version. If anything
+# below fails before the commit, put the snapshot back — a tree left on a bare version is exactly the
+# state the preflight above refuses to start from, so a failed release would block the next attempt.
+trap 'write_version "$SNAPSHOT_VERSION"' EXIT
 
-printf '%s\n' "$RELEASE_VERSION" > VERSION
+write_version "$RELEASE_VERSION"
 
 # Ad-hoc rather than the local self-signed identity: a "StockBar Local" certificate exists only on this
 # machine, so signing the distributed app with it buys nothing for anyone downloading it and makes the
@@ -194,15 +204,15 @@ printf '   %s (%s)\n' "$DMG" "$(du -h "$DMG" | cut -f1)"
 
 if [ "$DRY_RUN" -eq 1 ]; then
     echo ""
-    echo "✅ Dry run. $DMG and $NOTES are on disk; VERSION is back to $SNAPSHOT_VERSION."
-    echo "   Nothing was committed, tagged or pushed."
+    echo "✅ Dry run. $DMG and $NOTES are on disk; build_app.sh is back to $SNAPSHOT_VERSION."
+    echo "   Nothing was committed, tagged, signed or pushed."
     exit 0
 fi
 
 # ── Commit, tag, publish ──────────────────────────────────────────────────────────────────────────
-trap - EXIT   # from here the release version in VERSION is intentional and about to be committed
+trap - EXIT   # from here the released version in build_app.sh is intentional and about to be committed
 
-git add VERSION
+git add build_app.sh
 git commit --quiet -m "chore(release): $RELEASE_VERSION"
 git tag -a "$TAG" -m "$APP $RELEASE_VERSION"
 
@@ -217,9 +227,25 @@ gh release create "$TAG" "$DMG" \
     --notes-file "$NOTES" \
     --verify-tag
 
+# ── Publish to the Sparkle feed ───────────────────────────────────────────────────────────────────
+# Deliberately after the release exists: the appcast's enclosure URL points at the uploaded asset, so
+# signing and inserting it earlier would publish a feed entry that 404s for every installed copy.
+echo "📡 Adding $TAG to the appcast ..."
+if ./update_appcast.sh "$RELEASE_VERSION" "$DMG" "$NOTES"; then
+    git add appcast.xml
+    git commit --quiet -m "chore(release): add $TAG to the appcast"
+else
+    # The release itself is already published and is fine — only the feed is missing, and it can be
+    # added by hand. Say so loudly rather than exiting silently, because until this lands no installed
+    # copy will ever see the update.
+    echo "⚠️  update_appcast.sh failed — $TAG is published but NOT in the feed."
+    echo "   Fix it with: ./update_appcast.sh $RELEASE_VERSION $DMG $NOTES && git add appcast.xml"
+    echo "   (a denied keychain prompt for the EdDSA signing key is the usual cause)"
+fi
+
 # ── Prepare the next development cycle ────────────────────────────────────────────────────────────
-printf '%s\n' "$NEXT_VERSION-SNAPSHOT" > VERSION
-git add VERSION
+write_version "$NEXT_VERSION-SNAPSHOT"
+git add build_app.sh
 git commit --quiet -m "chore: prepare $NEXT_VERSION-SNAPSHOT"
 git push --quiet origin "$BRANCH"
 

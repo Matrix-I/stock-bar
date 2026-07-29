@@ -1,6 +1,9 @@
 StockBar.app/
 StockBar
 .build/
+# Sparkle is fetched by fetch_sparkle.sh (pinned version), not committed — keeps the repo lean.
+Frameworks/
+.sparkle-tools/
 *.dmg
 .claude/
 .idea/

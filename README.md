@@ -71,9 +71,11 @@ scaled. Getting this wrong is a 1000× error on screen.
 ## Layout
 
 ```
-VERSION                        the version, and the only place it is written
-build_app.sh                   compile + bundle + sign + relaunch
-release.sh                     cut a tagged release with a .dmg on GitHub
+build_app.sh                   the VERSION line, compile, bundle, embed Sparkle, sign, relaunch
+release.sh                     cut a tagged release with a .dmg on GitHub, then bump
+fetch_sparkle.sh               vendor the pinned Sparkle framework + tools (gitignored)
+update_appcast.sh              EdDSA-sign a .dmg and add it to appcast.xml
+appcast.xml                    the Sparkle feed, served raw from GitHub
 Sources/
   App/StockBarApp.swift        NSStatusItem + NSPopover, glyph cache, entry point
   Model/Quote.swift            the shape every source normalises into; PriceBand
@@ -82,9 +84,11 @@ Sources/
   Reader/CryptoQuoteSource.swift  Binance ticker + klines
   Reader/QuoteReader.swift     cadence, fan-out, last-good-quote store
   Support/                     Formatting, MarketHours, Watchlist, PollingTimer, LoginItem, AppInfo
+  Support/Updater.swift        Sparkle wrapper; UpdateUserDriver.swift is the compact update window
   View/MenuBarGlyph.swift      bakes the coloured status-bar NSImage
   View/TickerPopover.swift     the panel: rows, sparklines, settings
 Tools/probe.sh                 exercises the data layer from the command line
+Tools/uisnap.sh                renders the popover to a PNG (no Screen Recording permission needed)
 ```
 
 `NSStatusItem` rather than SwiftUI's `MenuBarExtra`, for two reasons: the label must be
@@ -94,12 +98,12 @@ presentation state desynchronises when its window is closed from outside, produc
 
 ## Versioning and releases
 
-`VERSION` at the repo root is the only place the version is written. `build_app.sh` stamps it into
-`Info.plist`; the panel header shows it back, in orange while it still carries `-SNAPSHOT`. During
-development it always does — a snapshot version is what says "this is not the build someone
+The version is written in exactly one line of `build_app.sh` (`VERSION="1.0.0-SNAPSHOT"`), which stamps
+it into `Info.plist`; the panel header shows it back, in orange while it still carries `-SNAPSHOT`.
+During development it always does — a snapshot version is what says "this is not the build someone
 downloaded".
 
-`release.sh` cuts a release, and is the only thing that rewrites `VERSION`:
+`release.sh` cuts a release, and is the only thing that rewrites that line:
 
 ```bash
 ./release.sh --dry-run     # build the .dmg and print the notes; touches nothing remote
@@ -124,6 +128,52 @@ behind `origin/main`, the tag is free both locally and on the remote, and `gh` i
 account that owns the repo — it checks that rather than switching, since `gh auth switch` is global
 state that would affect the user's other shells.
 
+## Auto-update
+
+Sparkle 2.9.4, same setup as `stats-bar`. `fetch_sparkle.sh` vendors the framework into `Frameworks/`
+and the release tools into `.sparkle-tools/` — both gitignored and re-fetched on demand, so a fresh
+checkout builds with no manual step. `build_app.sh` links it, embeds it in `Contents/Frameworks`, and
+signs inside-out (framework first, then the app around it — signing the app first would invalidate its
+seal the moment the nested framework was re-signed).
+
+The panel's footer carries the two controls: an **Automatically check for updates** checkbox (bound
+straight onto Sparkle, which persists it itself) and **Check for updates…**. A background check runs
+every 6 hours (`SUScheduledCheckInterval`) and stays silent unless there is something new; only a check
+the user started ever shows an "up to date" window.
+
+Two behaviours worth knowing before you conclude something is broken:
+
+- **The checkbox reads off on the very first run.** Sparkle deliberately waits until the *second* launch
+  before asking whether it may check automatically; our driver answers yes without showing a dialog, so
+  `SUEnableAutomaticChecks` flips to 1 then. Verified by clearing the `SU*` defaults and launching twice.
+- **`Check for updates…` fails until `appcast.xml` is on `main`.** `SUFeedURL` points at
+  raw.githubusercontent.com, which 404s until the file is pushed — the app is fine, the feed just doesn't
+  exist yet. It goes live with the first `release.sh` run (or any push of `appcast.xml`).
+
+The UI is one compact window rather than Sparkle's default multi-window flow — `UpdateUserDriver.swift`
+implements `SPUUserDriver` to replace only the *presentation*. Feed fetch, EdDSA verification, download,
+in-place install and relaunch are all stock Sparkle.
+
+```
+StockBar.app  ──SUFeedURL──▶  raw.githubusercontent.com/Matrix-I/stock-bar/main/appcast.xml
+                                        │ enclosure url + sparkle:edSignature
+                                        ▼
+                              github.com/…/releases/download/vX.Y.Z/StockBar-X.Y.Z.dmg
+```
+
+`release.sh` adds each release to the feed via `update_appcast.sh`, which EdDSA-signs the `.dmg` with
+the private key in this machine's keychain and prepends an `<item>` to `appcast.xml`. That happens
+*after* the GitHub release exists, because the enclosure URL has to resolve — a feed entry that 404s
+would reach every installed copy. The first signing run shows a one-time keychain prompt; click **Always
+Allow**. For a non-interactive run, export the key with `.sparkle-tools/generate_keys -x keyfile` (keep
+it out of the repo) and point `SPARKLE_ED_KEY_FILE` at it.
+
+**That EdDSA signature is what makes updating an unnotarized app safe.** Sparkle refuses any download
+that doesn't verify against `SUPublicEDKey` in `Info.plist`. And because Sparkle downloads through its
+own machinery rather than a browser, the update never gets a `com.apple.quarantine` flag — so Gatekeeper
+doesn't block the in-place install even though the app isn't notarized. Only the *first* install, from
+the `.dmg` a human downloaded, needs the `xattr` step.
+
 ## Debugging
 
 ```bash
@@ -134,6 +184,18 @@ GLYPH_DEMO=1 GLYPH_OUT=/tmp/b.png ./Tools/probe.sh   # render all five band colo
 ```
 
 The probe compiles the app's own Model/Support/Reader layers, so what it prints is what the app sees.
+
+To look at the panel itself:
+
+```bash
+./Tools/uisnap.sh /tmp/panel.png          # dark
+./Tools/uisnap.sh /tmp/panel-light.png light
+```
+
+`uisnap` hosts the real `TickerPopover` in a window and caches its display into a PNG. It exists because
+`screencapture` of the actual panel fails here without Screen Recording permission, which would leave
+every layout change unverifiable from a terminal. Caveat: `Bundle.main` is the tool, not `StockBar.app`,
+so the header renders the version as `dev` — check the real value against `Info.plist`.
 
 ### Behind a TLS-inspecting proxy
 

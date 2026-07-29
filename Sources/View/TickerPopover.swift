@@ -120,6 +120,12 @@ struct QuoteRow: View {
 struct TickerPopover: View {
     @ObservedObject var reader: QuoteReader
     @ObservedObject var watchlist: Watchlist
+    /// Sparkle updater — backs the automatic-check toggle in the footer.
+    let updater: Updater
+    /// Closes this popover and starts a user-initiated Sparkle check; supplied by AppDelegate. The
+    /// popover has to close first: it is `.applicationDefined`, so it would otherwise stay open on top
+    /// of the update window it just spawned.
+    let checkForUpdates: () -> Void
     let quitAction: () -> Void
 
     @State private var newSymbol = ""
@@ -263,6 +269,19 @@ struct TickerPopover: View {
             }
             .toggleStyle(.checkbox)
             .onChange(of: launchAtLogin) { LoginItem.setEnabled($0) }
+
+            // Sparkle persists this itself, so it is a direct binding onto the updater rather than an
+            // @AppStorage key of ours that would have to be kept in step with Sparkle's own default.
+            Toggle(isOn: Binding(get: { updater.automaticallyChecks },
+                                 set: { updater.automaticallyChecks = $0 })) {
+                Text("Automatically check for updates").font(.system(size: 11))
+            }
+            .toggleStyle(.checkbox)
+
+            Button(action: checkForUpdates) {
+                Text("Check for updates…").font(.system(size: 11))
+            }
+            .buttonStyle(.link)
 
             HStack {
                 Spacer()

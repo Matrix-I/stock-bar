@@ -9,12 +9,14 @@ cd "$(dirname "$0")"
 
 APP=StockBar
 
-# The single source of truth for the version — release.sh rewrites this file and nothing else, so the
-# bundle can never disagree with the git tag. During development it carries a -SNAPSHOT suffix, which
-# is dropped for the release commit and restored (at the next version) immediately after.
-VERSION=$(tr -d '[:space:]' < VERSION)
-# CFBundleVersion must be purely numeric-and-dots — LaunchServices and SMAppService compare it as a
-# version, and "-SNAPSHOT" makes that comparison undefined. So the suffix lives only in
+# THE version — the one place it is written. Same convention as stats-bar: a development build always
+# carries a -SNAPSHOT suffix so it can't be mistaken for a shipped one. Cutting release X.Y.Z means
+# dropping the suffix here, releasing, then bumping to the next X.(Y+1).0-SNAPSHOT — release.sh does
+# all three by rewriting this single line.
+VERSION="1.0.0-SNAPSHOT"
+# CFBundleVersion must be one to three period-separated integers: LaunchServices and SMAppService
+# compare it as a version, and Sparkle compares it against the appcast to decide whether an update is
+# newer, so "-SNAPSHOT" there would make all three undefined. The suffix therefore lives only in
 # CFBundleShortVersionString, which is free-form and is what the user actually sees.
 BUNDLE_VERSION=${VERSION%%-*}
 
@@ -27,6 +29,10 @@ for arg in "$@"; do
     esac
 done
 
+# Sparkle (auto-update) is linked in. Fetch the pinned framework if it's not vendored yet — this is a
+# no-op on subsequent builds, so normal rebuilds don't touch the network.
+./fetch_sparkle.sh
+
 echo "🔨 Compiling $APP $VERSION (Sources/*.swift) ..."
 SOURCES=$(find Sources -name '*.swift')
 # -target pins the deployment target. WITHOUT it swiftc defaults to the build machine's OS, which
@@ -38,13 +44,22 @@ SOURCES=$(find Sources -name '*.swift')
 TARGET="$(uname -m)-apple-macos13.0"
 # -parse-as-library is required for @main to be honoured in a multi-file module (without it swiftc
 # looks for top-level statements and rejects the @main attribute).
+# -F/-framework link Sparkle; the added @rpath resolves it from Contents/Frameworks at runtime.
 # shellcheck disable=SC2086
-swiftc -O -parse-as-library -target "$TARGET" $SOURCES -o "$APP"
+swiftc -O -parse-as-library -target "$TARGET" $SOURCES \
+    -F "$PWD/Frameworks" -framework Sparkle \
+    -Xlinker -rpath -Xlinker "@executable_path/../Frameworks" \
+    -o "$APP"
 
 echo "📦 Building the app bundle ..."
 rm -rf "$APP.app"
 mkdir -p "$APP.app/Contents/MacOS" "$APP.app/Contents/Resources"
 mv "$APP" "$APP.app/Contents/MacOS/$APP"
+
+# Embed Sparkle so the linked @rpath (@executable_path/../Frameworks) resolves at runtime. -R keeps the
+# framework's version symlinks intact (codesign requires the canonical Versions/Current layout).
+mkdir -p "$APP.app/Contents/Frameworks"
+cp -R Frameworks/Sparkle.framework "$APP.app/Contents/Frameworks/"
 
 if [ -f "AppIcon.icns" ]; then
     cp "AppIcon.icns" "$APP.app/Contents/Resources/AppIcon.icns"
@@ -67,6 +82,20 @@ cat > "$APP.app/Contents/Info.plist" <<PLIST
     <!-- Menu-bar-only app: no Dock icon, no app menu. -->
     <key>LSUIElement</key>              <true/>
     <key>NSHighResolutionCapable</key>  <true/>
+    <!-- Sparkle auto-update. SUFeedURL is the appcast (kept in the repo, served raw from GitHub);
+         SUPublicEDKey is the EdDSA public key whose private half (in the release machine's keychain)
+         signs each update — Sparkle refuses any download that doesn't verify against it. That
+         signature, not notarization, is what makes updating an unnotarized app safe. -->
+    <key>SUFeedURL</key>
+    <string>https://raw.githubusercontent.com/Matrix-I/stock-bar/main/appcast.xml</string>
+    <key>SUPublicEDKey</key>
+    <string>T9m2CL18FlN4xB3BR8rb6XNk7kFTCk4IWMIXlcp7WGE=</string>
+    <!-- How often Sparkle's background scheduler checks the appcast, in seconds: 6 hours. Sparkle's
+         built-in default is 1 day; this key sets the initial value (Sparkle enforces a 1-hour floor).
+         We never set updater.updateCheckInterval in code, so this Info.plist value governs on every
+         install — no user default shadows it. -->
+    <key>SUScheduledCheckInterval</key>
+    <integer>21600</integer>
 </dict>
 </plist>
 PLIST
@@ -91,10 +120,23 @@ PLIST
 SIGN_IDENTITY="${STOCKBAR_SIGN_IDENTITY:-StockBar Local}"
 if security find-identity -p codesigning 2>/dev/null | grep -qF "\"$SIGN_IDENTITY\""; then
     echo "🔏 Signing with stable identity: $SIGN_IDENTITY"
-    codesign --force -s "$SIGN_IDENTITY" "$APP.app"
+    SIGN_TO="$SIGN_IDENTITY"
 else
     echo "🔏 No stable signing identity ('$SIGN_IDENTITY') — ad-hoc signing."
+    SIGN_TO="-"
+fi
+
+# Sign inside-out: the embedded Sparkle framework first (it nests Updater.app + XPC services, which
+# codesign --deep signs with our identity so Sparkle's runtime sees a matching signature), then seal the
+# app bundle around it. Signing the app first would invalidate its seal the moment the framework inside
+# it was re-signed. Ad-hoc ('-') failures are tolerated; a real identity must succeed.
+SPARKLE_FW="$APP.app/Contents/Frameworks/Sparkle.framework"
+if [ "$SIGN_TO" = "-" ]; then
+    codesign --force --deep -s - "$SPARKLE_FW" 2>/dev/null || true
     codesign --force -s - "$APP.app" 2>/dev/null || true
+else
+    codesign --force --deep -s "$SIGN_TO" "$SPARKLE_FW"
+    codesign --force -s "$SIGN_TO" "$APP.app"
 fi
 
 # Force LaunchServices to re-register this exact bundle and drop any cached icon render, so a freshly

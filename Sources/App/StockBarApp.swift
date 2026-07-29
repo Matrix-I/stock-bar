@@ -24,6 +24,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let watchlist = Watchlist()
     private lazy var reader = QuoteReader(watchlist: watchlist)
 
+    /// Sparkle. Created lazily so its background scheduler starts on the first access below (inside
+    /// applicationDidFinishLaunching) rather than during property initialisation, and held for the
+    /// app's lifetime — an SPUUpdater that is deallocated stops checking.
+    private lazy var updater = Updater()
+
     private var statusItem: NSStatusItem!
     private var actionTarget: ClickTarget?
     private let popover = NSPopover()
@@ -63,6 +68,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let host = NSHostingController(
             rootView: TickerPopover(reader: reader,
                                     watchlist: watchlist,
+                                    updater: updater,
+                                    checkForUpdates: { [weak self] in
+                                        // Close first: the popover is .applicationDefined, so it would
+                                        // otherwise sit on top of the update window it just opened.
+                                        self?.closePopover()
+                                        self?.updater.checkForUpdates()
+                                    },
                                     quitAction: { NSApp.terminate(nil) })
         )
         host.sizingOptions = [.preferredContentSize]
