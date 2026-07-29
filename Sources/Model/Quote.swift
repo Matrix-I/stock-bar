@@ -16,6 +16,32 @@ enum Market: String, Codable, Sendable, CaseIterable {
     case crypto
 }
 
+extension Market {
+    /// Quote assets a Binance pair can be denominated in that no Vietnamese ticker could ever end with.
+    /// Deliberately only the stablecoins: they are all four characters or more, while a HOSE/HNX ticker
+    /// is three letters and the indices are a handful of known names, so a suffix match here cannot
+    /// misfire. Binance's coin-quoted pairs (ETHBTC, SOLBNB) are left out for exactly that reason — "BTC"
+    /// is three characters and guessing on it risks filing a Vietnamese ticker under the wrong venue,
+    /// which is the very bug this is here to fix.
+    private static let cryptoQuoteAssets = ["USDT", "USDC", "FDUSD", "BUSD", "TUSD"]
+
+    /// The market a symbol *must* belong to, judged from the ticker alone; nil when the ticker says
+    /// nothing and the caller's own choice should stand.
+    ///
+    /// This exists because the two namespaces cannot overlap, and getting it wrong fails silently.
+    /// Typing `BTCUSDT` while the Add row's picker sat on its "VN" default filed it as a HOSE ticker,
+    /// so the app asked a Vietnamese board for a symbol that does not exist there: the row showed a
+    /// dash forever, with no hint that the market — not the feed — was the problem.
+    static func inferred(for symbol: String) -> Market? {
+        let upper = symbol.uppercased()
+        // `count >` and not `>=`: a bare quote asset typed on its own is not a pair.
+        if cryptoQuoteAssets.contains(where: { upper.hasSuffix($0) && upper.count > $0.count }) {
+            return .crypto
+        }
+        return nil
+    }
+}
+
 /// Where a quote sits relative to the day's permitted band. Vietnamese boards colour these
 /// distinctly, which is the main reason this is modelled rather than inferred from the sign alone.
 enum PriceBand: Sendable {
