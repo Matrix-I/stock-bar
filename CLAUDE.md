@@ -71,6 +71,12 @@ the overlay scroller was drawn on top of the change figures.
 `MenuBarStyle` is deliberately NOT scaled by `Theme.scale` — the menu bar's height is fixed at 22pt by the
 system.
 
+The hover card is drawn by the **panel**, over the finished layout, and not by the row it describes — see
+`View/Panel/DetailCardOverlay.swift` for the anchor-preference seam and `Core/DetailCardLayout.swift` for
+where it lands. Moving it back into the row's own stack is the regression to watch for: it compiles, it looks
+right in a screenshot, and it turns pointing at a price into a way of pushing every price below it down the
+panel. `uisnap` reports the panel height, and the hover states must report the same one as `plain`.
+
 ## Conventions
 
 - **Comments explain why, not what**, and at length where the reason isn't recoverable from the code —
@@ -118,7 +124,9 @@ system.
   The long one matters: with 18 rows the list exceeds the cap and the *scrolling* branch is what gets
   rendered. A refactor that claims to preserve the layout should produce identical hashes across all of
   them. The hover one needs the network to show its P/E and P/B, so it is the one state that is not
-  byte-deterministic — check it by eye.
+  byte-deterministic — check it by eye, and check that the height it prints matches `plain`, because the
+  card floats and must cost the panel nothing. Force it onto the last symbol as well as the first: those
+  are the two placements (below the row, and flipped above it).
 
 When a change is *meant* to preserve behaviour, prove it rather than asserting it. Four matching PNG
 hashes is a proof; "it still compiles" is not.

@@ -63,23 +63,30 @@ in a stablecoin quote (`BTCUSDT`, `ETHUSDC`) is filed under Binance whatever the
 sending it to a HOSE backend can only ever fail. An existing watchlist with symbols on the wrong market is
 repaired on load.
 
-**Resting the pointer on a row opens a detail card under it**, at once rather than after AppKit's
+**Resting the pointer on a row floats a detail card off it**, at once rather than after AppKit's
 one-to-two-second tooltip delay:
 
 ```
-VCB                                            54,600
-HOSE      ▁▂▃▂▄▅▄▆                     ▲ +500 (+0.92%)
-┌──────────────────────────────────────────────────────┐
-│ Ceiling    57,800      P/E                    12.97  │
-│ Floor      50,400      P/B                     2.03  │
-│ Reference  54,100      Updated             just now  │
-│ Volume       207k                                    │
-└──────────────────────────────────────────────────────┘
+VNINDEX                                      1,704.68
+Index     ▁▂▃▂▄▅▄▆                  ▲ +24.06 (+1.43%)
+VCB   ┌──────────────────────────────────────────────────┐
+HOSE  │ Ceiling    58,400      P/E                12.99  │
+      │ Floor      50,800      P/B                 2.04  │
+      │ Reference  54,600      Updated         just now  │
+      │ Volume       207k                                │
+      └──────────────────────────────────────────────────┘
+BTCUSDT                                     64,310.01
 ```
 
+The card is drawn over the panel, not in it — opening it moves nothing. It used to be laid out under its
+row, and that made pointing at a price a way of pushing every price below it downwards. It goes under the
+row where there is room and above it where there isn't, which is what the bottom row of the list gets; the
+placement is `Sources/Core/DetailCardLayout.swift`, and the reason a row cannot place it itself is at the top
+of `View/Panel/DetailCardOverlay.swift`.
+
 An index drops the band and the ratios; a crypto pair shows `24h open` instead of `Reference` and gets no
-valuation at all. The card is suppressed in edit mode, where it would shove the reorder chevrons around
-under the pointer.
+valuation at all. The card is suppressed in edit mode, where it would cover the reorder chevrons the pointer
+is on its way to.
 
 **P/E and P/B are computed from the price on screen**, not taken ready-made from the feed. SSI reports a
 P/E of 14.23 for VCB on an EPS of 4,210 — which implies a price of 59,900, while the board that same minute
@@ -173,6 +180,7 @@ Sources/
     PriceFormat.swift          every number → the string on screen
     Fundamentals.swift         EPS and book value → P/E and P/B at the live price
     QuoteDetail.swift          the hover card's label/value rows, per kind of instrument
+    DetailCardLayout.swift     where that card floats: under the row, above it, or over the chrome
     WatchlistRepair.swift      refile a symbol stored under a market that cannot serve it
     MenuBarLabel.swift         what the menu bar says, as an Equatable value
   Reader/                      the venues
@@ -194,10 +202,11 @@ Sources/
     MenuBar/MenuBarGlyph.swift   bakes the coloured status-bar NSImage
     MenuBar/MenuBarStyle.swift   the glyph's own (unscaled) tokens
     Panel/TickerPopover.swift    the panel's layout and the scroll decision
+    Panel/DetailCardOverlay.swift  draws the hovered row's card over the panel, not in it
     Panel/                       PanelHeader, SymbolList, QuoteRow, Sparkline,
                                  QuoteDetailCard, AddSymbolField, SettingsFooter
   App/StockBarApp.swift        NSStatusItem + NSPopover, entry point
-Tests/StockBarCoreTests/       53 tests over Sources/Core
+Tests/StockBarCoreTests/       76 tests over Sources/Core
 Tools/probe.sh                 exercises the data layer from the command line
 Tools/uisnap.sh                renders the popover to a PNG (no Screen Recording permission needed)
 ```
