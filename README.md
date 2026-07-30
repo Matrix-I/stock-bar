@@ -63,14 +63,40 @@ in a stablecoin quote (`BTCUSDT`, `ETHUSDC`) is filed under Binance whatever the
 sending it to a HOSE backend can only ever fail. An existing watchlist with symbols on the wrong market is
 repaired on load.
 
-Every size in the panel goes through `pt()`/`uiFont()` in `View/TickerPopover.swift`, which multiply by
-`uiScale` (currently `1.5`). Change that one constant to resize the whole panel: scaling the fonts alone
+**Resting the pointer on a row opens a detail card under it**, at once rather than after AppKit's
+one-to-two-second tooltip delay:
+
+```
+VCB                                            54,600
+HOSE      ▁▂▃▂▄▅▄▆                     ▲ +500 (+0.92%)
+┌──────────────────────────────────────────────────────┐
+│ Ceiling    57,800      P/E                    12.97  │
+│ Floor      50,400      P/B                     2.03  │
+│ Reference  54,100      Updated             just now  │
+│ Volume       207k                                    │
+└──────────────────────────────────────────────────────┘
+```
+
+An index drops the band and the ratios; a crypto pair shows `24h open` instead of `Reference` and gets no
+valuation at all. The card is suppressed in edit mode, where it would shove the reorder chevrons around
+under the pointer.
+
+**P/E and P/B are computed from the price on screen**, not taken ready-made from the feed. SSI reports a
+P/E of 14.23 for VCB on an EPS of 4,210 — which implies a price of 59,900, while the board that same minute
+quoted 54,600. Printing 14.23 under 54,600 invites the reader to divide the two, get 12.97, and disbelieve
+the panel. So only the per-share figures are kept and the ratios are recomputed; see
+`Sources/Core/Fundamentals.swift` for how the book value is recovered from the feed's own numbers. A
+loss-making company shows no P/E rather than a negative multiple.
+
+Every size in the panel goes through `Theme` in `View/Design/Theme.swift`, which multiplies by
+`Theme.scale` (currently `1.5`). Change that one constant to resize the whole panel: scaling the fonts alone
 would clip the columns, so widths, padding and spacing scale with them. The menu-bar label is not
-affected — a status item is capped at the menu bar's own height, so its text cannot grow with the panel.
+affected — a status item is capped at the menu bar's own height, so its text cannot grow with the panel,
+which is why `View/MenuBar/MenuBarStyle.swift` holds its own unscaled tokens.
 
 Prices are shown **in full, never abbreviated or rounded** — the menu bar and the panel call the same
-`fmtPrice` in `Support/Formatting.swift`, so they cannot disagree about what an instrument costs. That
-costs width: about 125pt per pinned symbol with the percentage shown. Turn off *Show change % in the
+`PriceFormat.price` in `Core/PriceFormat.swift`, so they cannot disagree about what an instrument costs.
+That costs width: about 125pt per pinned symbol with the percentage shown. Turn off *Show change % in the
 menu bar* in the panel to get roughly 45pt of that back per symbol.
 
 Colours follow the **Vietnamese board convention**, which is not the Western one:
@@ -94,10 +120,18 @@ Crypto uses green/red only; it has no daily band.
 | VN reference | same, `resolution=1D` | Previous session's close. Cached for the day — it only changes overnight. |
 | Crypto | `api.binance.com/api/v3/ticker/24hr?symbols=[…]` | One request covers every pair. Reference is `openPrice` (24h rolling), matching Binance's own UI. |
 | Crypto sparkline | `api.binance.com/api/v3/klines?interval=1m&limit=60` | Last hour of 1-minute candles. |
+| VN fundamentals | `iboard-api.ssi.com.vn/statistics/company/financial-indicator?symbol=VCB` | EPS and the P/E–P/B pair the book value is recovered from. Cached for the ICT day. |
 
-The VPS endpoints are the JSON services behind VPS's own public web board. They need no key and are
-community-known rather than formally documented, so treat them as something that can change without
-notice — `Tools/probe.sh` exists to tell you quickly when it has.
+The VPS and SSI endpoints are the JSON services behind those brokers' own public web boards. They need no
+key and are community-known rather than formally documented, so treat them as something that can change
+without notice — `Tools/probe.sh` exists to tell you quickly when it has.
+
+The fundamentals feed was picked by elimination, all checked live on 2026-07-30: the VPS board this app
+already calls carries 57 fields and not one valuation ratio; TCBS's `tcanalysis` paths answer 404; Fireant
+returns 401 without a token; VNDIRECT's `finfo` host times out through a TLS-inspecting proxy; and SSI's own
+`financial-ratio` and `company-info` paths are 404 while `financial-indicator` is not. An index, an unknown
+ticker and a company with no filings all answer `200` with `data: null`, which is why "no ratios" is a
+normal result here rather than an error.
 
 ### Price scaling
 
@@ -137,6 +171,8 @@ Sources/
     WatchedSymbol.swift        one configured row: its id, its menu-bar alias, its venue line
     MarketHours.swift          HOSE session windows, and the status line that explains them
     PriceFormat.swift          every number → the string on screen
+    Fundamentals.swift         EPS and book value → P/E and P/B at the live price
+    QuoteDetail.swift          the hover card's label/value rows, per kind of instrument
     WatchlistRepair.swift      refile a symbol stored under a market that cannot serve it
     MenuBarLabel.swift         what the menu bar says, as an Equatable value
   Reader/                      the venues
@@ -144,6 +180,7 @@ Sources/
     HTTPClient.swift           shared URLSession + lenient JSON number coercion
     VNQuoteSource.swift        VPS board + TradingView UDF history
     CryptoQuoteSource.swift    Binance ticker + klines
+    FundamentalsSource.swift   SSI financial-indicator, cached for the ICT day
   Store/                       the observable state the UI binds to
     QuoteReader.swift          cadence, fan-out, last-good-quote store, add-time validation
     Watchlist.swift            the user's symbols, persisted to UserDefaults
@@ -158,7 +195,7 @@ Sources/
     MenuBar/MenuBarStyle.swift   the glyph's own (unscaled) tokens
     Panel/TickerPopover.swift    the panel's layout and the scroll decision
     Panel/                       PanelHeader, SymbolList, QuoteRow, Sparkline,
-                                 AddSymbolField, SettingsFooter
+                                 QuoteDetailCard, AddSymbolField, SettingsFooter
   App/StockBarApp.swift        NSStatusItem + NSPopover, entry point
 Tests/StockBarCoreTests/       53 tests over Sources/Core
 Tools/probe.sh                 exercises the data layer from the command line
@@ -288,15 +325,17 @@ To look at the panel itself:
 ./Tools/uisnap.sh /tmp/panel.png          # dark
 ./Tools/uisnap.sh /tmp/panel-light.png light
 STOCKBAR_UI_EDIT=1 ./Tools/uisnap.sh /tmp/edit.png          # the edit-mode row layout
+STOCKBAR_UI_HOVER=VCB ./Tools/uisnap.sh /tmp/hover.png      # the detail card, opened
 STOCKBAR_UI_WATCHLIST=VCB,MBB,HPG,FPT ./Tools/uisnap.sh /tmp/long.png   # append real tickers
 ```
 
 `uisnap` hosts the real `TickerPopover` in a window and caches its display into a PNG. It exists because
 `screencapture` of the actual panel fails here without Screen Recording permission, which would leave
-every layout change unverifiable from a terminal. The two environment variables reach states the tool
-can't otherwise click its way into: `STOCKBAR_UI_EDIT` turns on edit mode, and `STOCKBAR_UI_WATCHLIST`
-appends symbols so a list long enough to scroll can be rendered — the shipped default is four rows, which
-never reaches the cap. Neither is ever set for the app itself.
+every layout change unverifiable from a terminal. The environment variables reach states the tool can't
+otherwise click or point its way into: `STOCKBAR_UI_EDIT` turns on edit mode, `STOCKBAR_UI_HOVER=VCB` opens
+one row's detail card, and `STOCKBAR_UI_WATCHLIST` appends symbols so a list long enough to scroll can be
+rendered — the shipped default is four rows, which never reaches the cap. None is ever set for the app
+itself.
 
 Two caveats. `Bundle.main` is the tool, not `StockBar.app`, so the header renders the version as `dev`;
 check the real value against `Info.plist`. And `cacheDisplay` does not capture an `NSSwitch`'s on-state

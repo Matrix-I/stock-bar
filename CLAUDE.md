@@ -87,6 +87,12 @@ system.
   Don't `cd` into it (that breaks codesign paths) and don't commit it.
 - **VN prices are real VND in the model.** The VPS board reports equities in thousands and indices in
   points; the scaling happens once, in `VNQuoteSource`. Getting it wrong is a 1000× error on screen.
+- **Anything derived from a price is derived from OUR price.** The fundamentals feed hands over a
+  ready-made P/E and P/B computed against a snapshot of its own — for VCB that snapshot was 59,900 against
+  a board price of 54,600. Only its per-share figures are kept; the ratios are recomputed in
+  `Core/Fundamentals.swift`. Reaching for the vendor's `pe`/`pb` because they are right there is the
+  regression to watch for: the panel would then show two prices for one instrument again, one of them
+  implicit.
 
 ## Verifying a change
 
@@ -106,10 +112,13 @@ system.
   ./Tools/uisnap.sh /tmp/plain.png dark
   ./Tools/uisnap.sh /tmp/light.png light
   STOCKBAR_UI_EDIT=1 ./Tools/uisnap.sh /tmp/edit.png dark
+  STOCKBAR_UI_HOVER=VCB ./Tools/uisnap.sh /tmp/hover.png dark
   STOCKBAR_UI_WATCHLIST=VCB,MBB,FPT,HPG,SSI,VIC,VHM,MSN,GAS,CTG,BID,TCB,ACB,STB ./Tools/uisnap.sh /tmp/long.png dark
   ```
   The long one matters: with 18 rows the list exceeds the cap and the *scrolling* branch is what gets
-  rendered. A refactor that claims to preserve the layout should produce four identical hashes.
+  rendered. A refactor that claims to preserve the layout should produce identical hashes across all of
+  them. The hover one needs the network to show its P/E and P/B, so it is the one state that is not
+  byte-deterministic — check it by eye.
 
 When a change is *meant* to preserve behaviour, prove it rather than asserting it. Four matching PNG
 hashes is a proof; "it still compiles" is not.
