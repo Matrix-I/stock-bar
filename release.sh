@@ -222,8 +222,12 @@ git push --quiet origin "$TAG"
 
 echo "🚀 Creating the GitHub release ..."
 # --verify-tag makes gh use the tag we just pushed rather than silently creating its own from HEAD.
+#
+# The title is the tag and nothing else. "StockBar 1.0.0" repeats the repository's own name on every entry
+# in a list that is already all StockBar, and the version is then spelled twice per row — once in the
+# heading and once in the tag beside it.
 gh release create "$TAG" "$DMG" \
-    --title "$APP $RELEASE_VERSION" \
+    --title "$TAG" \
     --notes-file "$NOTES" \
     --verify-tag
 
