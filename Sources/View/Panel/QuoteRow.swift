@@ -32,7 +32,6 @@ struct QuoteRow: View {
             }
         }
         .opacity(stale ? Theme.Opacity.stale : 1)
-        .help(helpText)
     }
 
     private var symbolColumn: some View {
@@ -68,19 +67,4 @@ struct QuoteRow: View {
         }
     }
 
-    /// The tooltip carries what doesn't fit in the row: the daily band, volume, and how old the quote
-    /// is. Ceiling/floor especially — those are the numbers a VN trader wants when a stock locks up.
-    private var helpText: String {
-        guard let q = quote else { return "No data yet" }
-        var parts: [String] = []
-        if let c = q.ceiling { parts.append("Trần \(PriceFormat.price(c, market: q.market, isIndex: false))") }
-        if let f = q.floor { parts.append("Sàn \(PriceFormat.price(f, market: q.market, isIndex: false))") }
-        if let r = q.reference {
-            let label = q.market == .vietnam ? "TC" : "24h open"
-            parts.append("\(label) \(PriceFormat.price(r, market: q.market, isIndex: entry.isIndex))")
-        }
-        if let v = q.volume { parts.append("Vol \(PriceFormat.volume(v))") }
-        parts.append(PriceFormat.asOf(q.asOf))
-        return parts.joined(separator: " · ")
-    }
 }

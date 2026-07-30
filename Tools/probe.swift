@@ -100,6 +100,28 @@ struct Probe {
             }
         }
 
+        // Trailing per-share figures, which back the P/E and P/B in the hover card. Printed with the
+        // recovered book value and both ratios spelled out, because a ratio that looks wrong on screen is
+        // only diagnosable if you can see which of the three inputs it came from — and because the feed's
+        // own pe/pb are deliberately NOT what the card shows (see Core/Fundamentals.swift).
+        let fundamentalsFeed = FundamentalsSource()
+        print(String(repeating: "─", count: 78))
+        for (symbol, market) in requested where market == .vietnam && !Ticker.isIndex(symbol) {
+            do {
+                let f = try await fundamentalsFeed.fetch(for: symbol)
+                guard !f.isEmpty else { print("fundamentals \(symbol): none reported"); continue }
+                let price = quotes.first { $0.symbol == symbol }?.price
+                let eps = f.earningsPerShare.map { PriceFormat.price($0, market: .vietnam, isIndex: false) } ?? "—"
+                let bvps = f.bookValuePerShare.map { PriceFormat.price($0, market: .vietnam, isIndex: false) } ?? "—"
+                let pe = price.flatMap { f.priceEarnings(at: $0) }.map { PriceFormat.ratio($0) } ?? "—"
+                let pb = price.flatMap { f.priceBook(at: $0) }.map { PriceFormat.ratio($0) } ?? "—"
+                print("fundamentals \(symbol): eps \(eps) · bvps \(bvps) · P/E \(pe) · P/B \(pb)"
+                      + (f.year.map { " (\($0))" } ?? ""))
+            } catch {
+                print("fundamentals \(symbol): ✗ \(error.localizedDescription)")
+            }
+        }
+
         // Render the real menu-bar glyph to a PNG. The status-bar image is otherwise the one part of
         // the app you cannot inspect without taking a screenshot of the whole display — this renders it
         // through the same MenuBarGlyph the app uses, so colour, spacing and total width can be

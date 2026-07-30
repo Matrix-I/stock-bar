@@ -26,6 +26,10 @@ final class QuoteReader: ObservableObject {
     /// Recent closes per `WatchedSymbol.id` for the popover sparklines. Only fetched while the popover
     /// is open, since nothing else draws them.
     @Published private(set) var history: [String: [Double]] = [:]
+    /// Trailing per-share figures per `WatchedSymbol.id`, behind the P/E and P/B in the hover card. Only
+    /// Vietnamese equities have them; everything else stays absent, which the card simply renders fewer
+    /// rows for.
+    @Published private(set) var fundamentals: [String: Fundamentals] = [:]
     /// Human-readable description of the most recent failure, cleared by the next success. Shown as a
     /// footer in the popover rather than an alert — a transient fetch failure is not worth a modal.
     @Published private(set) var lastError: String?
@@ -41,6 +45,7 @@ final class QuoteReader: ObservableObject {
     private let watchlist: Watchlist
     private let vn = VNQuoteSource()
     private let crypto = CryptoQuoteSource()
+    private let fundamentalsFeed = FundamentalsSource()
 
     private lazy var poll = PollingTimer { [weak self] in self?.refresh() }
     private var panelOpen = false
@@ -194,6 +199,7 @@ final class QuoteReader: ObservableObject {
 
             if wantHistory {
                 await self.refreshHistory(for: symbols)
+                await self.refreshFundamentals(for: symbols)
             }
 
             self.inFlight = false
@@ -235,6 +241,7 @@ final class QuoteReader: ObservableObject {
         let live = Set(symbols.map(\.id))
         quotes = quotes.filter { live.contains($0.key) }
         history = history.filter { live.contains($0.key) }
+        fundamentals = fundamentals.filter { live.contains($0.key) }
 
         if failures.isEmpty {
             lastError = nil
@@ -267,6 +274,34 @@ final class QuoteReader: ObservableObject {
             return out
         }
         for (id, closes) in results { history[id] = closes }
+    }
+
+    /// Fetch trailing per-share figures for the Vietnamese equities, concurrently. Errors are swallowed for
+    /// the same reason as the sparklines: a missing ratio just leaves two rows out of a hover card, and it
+    /// is not worth a message beside a price that arrived fine.
+    ///
+    /// Called on every panel refresh even though the figures change once a quarter. FundamentalsSource
+    /// caches per ICT day, so this costs one request per equity per day and nothing after that — and going
+    /// through it each time is what makes the cache expire by itself when the day rolls over.
+    private func refreshFundamentals(for symbols: [WatchedSymbol]) async {
+        let feed = fundamentalsFeed
+        let wanted = symbols.filter { $0.market == .vietnam && !$0.isIndex }
+        guard !wanted.isEmpty else { return }
+
+        let results = await withTaskGroup(of: (String, Fundamentals)?.self) { group in
+            for entry in wanted {
+                group.addTask {
+                    guard let value = try? await feed.fetch(for: entry.symbol), !value.isEmpty else {
+                        return nil
+                    }
+                    return (entry.id, value)
+                }
+            }
+            var out: [(String, Fundamentals)] = []
+            for await r in group { if let r { out.append(r) } }
+            return out
+        }
+        for (id, value) in results { fundamentals[id] = value }
     }
 
     /// Pick the polling interval from whether anything being watched is currently trading. Idempotent —

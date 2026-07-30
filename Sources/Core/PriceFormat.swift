@@ -80,6 +80,12 @@ enum PriceFormat {
 
     // MARK: - Other columns
 
+    /// A valuation multiple: "12.97", "2.03". Two decimals because that is how every board prints P/E and
+    /// P/B, and because the second one is what distinguishes 2.03 from 2.30 at a glance.
+    static func ratio(_ value: Double) -> String {
+        String(format: "%.2f", value)
+    }
+
     /// Session volume: "12.4M" / "834k" shares. Traders read volume by order of magnitude, so an exact
     /// digit count would be noise.
     static func volume(_ shares: Double) -> String {

@@ -11,25 +11,67 @@ struct SymbolList: View {
     @ObservedObject var watchlist: Watchlist
     let editing: Bool
 
+    /// The row the pointer is resting on, if any — see `detailIsShown`.
+    @State private var hovered: String?
+
+    /// Forces one symbol's card open so Tools/uisnap.sh can render it. Hover is unreachable from a snapshot
+    /// tool, and an unrenderable state is an unverifiable one. Never set for the app itself.
+    private static let forcedHover = ProcessInfo.processInfo.environment["STOCKBAR_UI_HOVER"]?.uppercased()
+
     var body: some View {
-        VStack(spacing: Theme.Space.rowGap) {
+        // spacing 0 with the gap moved into each entry's own padding, so the hit areas the hover is
+        // measured against are CONTIGUOUS. With the gap between them, crossing from one row to the next
+        // passed through 10pt of dead space and the open card blinked shut and back on the way.
+        VStack(spacing: 0) {
             ForEach(Array(watchlist.symbols.enumerated()), id: \.element.id) { index, entry in
-                HStack(spacing: Theme.Space.control) {
-                    if editing {
-                        pinButton(entry)
-                        reorderButtons(entry, at: index)
+                VStack(alignment: .leading, spacing: Theme.Space.detailGap) {
+                    HStack(spacing: Theme.Space.control) {
+                        if editing {
+                            pinButton(entry)
+                            reorderButtons(entry, at: index)
+                        }
+
+                        QuoteRow(entry: entry,
+                                 quote: reader.quotes[entry.id],
+                                 history: reader.history[entry.id] ?? [],
+                                 stale: reader.isStale(entry.id),
+                                 showSparkline: !editing)
+
+                        if editing { removeButton(entry) }
                     }
 
-                    QuoteRow(entry: entry,
-                             quote: reader.quotes[entry.id],
-                             history: reader.history[entry.id] ?? [],
-                             stale: reader.isStale(entry.id),
-                             showSparkline: !editing)
-
-                    if editing { removeButton(entry) }
+                    if detailIsShown(entry) {
+                        QuoteDetailCard(rows: QuoteDetail.rows(for: entry,
+                                                               quote: reader.quotes[entry.id],
+                                                               fundamentals: reader.fundamentals[entry.id] ?? .none))
+                    }
+                }
+                .padding(.vertical, Theme.Space.rowGap / 2)
+                // The row is mostly Spacer, and hover is not reported for transparent areas without this.
+                .contentShape(Rectangle())
+                .onHover { inside in
+                    if inside {
+                        hovered = entry.id
+                    } else if hovered == entry.id {
+                        // Guarded: the pointer entering the next row reports that one's `true` before this
+                        // one's `false`, and clearing unconditionally would then close the card that just
+                        // opened.
+                        hovered = nil
+                    }
                 }
             }
         }
+    }
+
+    /// Whether `entry`'s card is open. The card is attached to the entry's whole stack rather than to the
+    /// quote row, which is what lets the pointer move down INTO the card without the hover ending and the
+    /// card vanishing from under it.
+    ///
+    /// Suppressed while editing: the card would push the reorder chevrons around under the pointer, and a
+    /// list being rearranged is not a list anyone is reading valuation ratios off.
+    private func detailIsShown(_ entry: WatchedSymbol) -> Bool {
+        guard !editing else { return false }
+        return hovered == entry.id || Self.forcedHover == entry.symbol.uppercased()
     }
 
     private func pinButton(_ entry: WatchedSymbol) -> some View {

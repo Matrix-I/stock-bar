@@ -81,6 +81,14 @@ enum Theme {
         /// Minimum gap between a settings label and its switch, so a long label truncates rather than
         /// pushing the switch off the panel.
         static let switchGap = Theme.pt(12)
+
+        /// A row and the detail card that opens under it on hover.
+        static let detailGap = Theme.pt(4)
+        /// Inside the detail card: between its two column pairs, and between a label and its value.
+        static let detailColumns = Theme.pt(14)
+        static let detailLabel = Theme.pt(6)
+        static let detailRows = Theme.pt(3)
+        static let detailPadding = Theme.pt(7)
     }
 
     // MARK: - Sizes
@@ -98,6 +106,7 @@ enum Theme {
         /// Keeps a few rows visible on a short display rather than letting the footer squeeze the list to
         /// nothing.
         static let minListHeight = Theme.pt(120)
+        static let cardRadius = Theme.pt(5)
     }
 
     // MARK: - Type
@@ -124,6 +133,11 @@ enum Theme {
 
         static let settingsLabel = Theme.settingsFont(11)
         static let settingsStatus = Theme.settingsFont(10)
+
+        /// The hover card. Smaller than the row it belongs to, so it reads as an annotation of the row
+        /// rather than as more rows.
+        static let detailLabel = Theme.font(9)
+        static let detailValue = Theme.font(9, .medium)
     }
 
     // MARK: - Opacity
@@ -139,6 +153,9 @@ enum Theme {
         /// A reorder chevron at the end of the list: disabled, but still occupying its place so the rows
         /// stay aligned.
         static let disabledIcon: Double = 0.3
+        /// The hover card's own backing, over the popover's vibrancy. Deliberately faint: it has to read as
+        /// attached to the row above it, not as a window of its own.
+        static let detailCard: Double = 0.07
     }
 
     // MARK: - Sparkline
