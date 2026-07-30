@@ -24,27 +24,19 @@ struct SymbolList: View {
         // passed through 10pt of dead space and the open card blinked shut and back on the way.
         VStack(spacing: 0) {
             ForEach(Array(watchlist.symbols.enumerated()), id: \.element.id) { index, entry in
-                VStack(alignment: .leading, spacing: Theme.Space.detailGap) {
-                    HStack(spacing: Theme.Space.control) {
-                        if editing {
-                            pinButton(entry)
-                            reorderButtons(entry, at: index)
-                        }
-
-                        QuoteRow(entry: entry,
-                                 quote: reader.quotes[entry.id],
-                                 history: reader.history[entry.id] ?? [],
-                                 stale: reader.isStale(entry.id),
-                                 showSparkline: !editing)
-
-                        if editing { removeButton(entry) }
+                HStack(spacing: Theme.Space.control) {
+                    if editing {
+                        pinButton(entry)
+                        reorderButtons(entry, at: index)
                     }
 
-                    if detailIsShown(entry) {
-                        QuoteDetailCard(rows: QuoteDetail.rows(for: entry,
-                                                               quote: reader.quotes[entry.id],
-                                                               fundamentals: reader.fundamentals[entry.id] ?? .none))
-                    }
+                    QuoteRow(entry: entry,
+                             quote: reader.quotes[entry.id],
+                             history: reader.history[entry.id] ?? [],
+                             stale: reader.isStale(entry.id),
+                             showSparkline: !editing)
+
+                    if editing { removeButton(entry) }
                 }
                 .padding(.vertical, Theme.Space.rowGap / 2)
                 // The row is mostly Spacer, and hover is not reported for transparent areas without this.
@@ -59,16 +51,23 @@ struct SymbolList: View {
                         hovered = nil
                     }
                 }
+                // The card itself is drawn by the panel, not from here — see DetailCardOverlay. This row
+                // only says that it is the one being pointed at, and hands over a rectangle the panel can
+                // resolve into a position.
+                .detailAnchor(entry, when: detailIsShown(entry))
             }
         }
     }
 
-    /// Whether `entry`'s card is open. The card is attached to the entry's whole stack rather than to the
-    /// quote row, which is what lets the pointer move down INTO the card without the hover ending and the
-    /// card vanishing from under it.
+    /// Whether `entry`'s card is open.
     ///
-    /// Suppressed while editing: the card would push the reorder chevrons around under the pointer, and a
-    /// list being rearranged is not a list anyone is reading valuation ratios off.
+    /// The card floats over the panel and takes no hover of its own, so "into the card" is not a place the
+    /// pointer can go: moving down from a row lands on the next row, whose card takes over. That is the
+    /// behaviour to want — the card annotates wherever the pointer is — and it is the reason the rows'
+    /// hit areas have to be contiguous.
+    ///
+    /// Suppressed while editing: a card over the reorder chevrons would cover the control the pointer is on
+    /// its way to, and a list being rearranged is not a list anyone is reading valuation ratios off.
     private func detailIsShown(_ entry: WatchedSymbol) -> Bool {
         guard !editing else { return false }
         return hovered == entry.id || Self.forcedHover == entry.symbol.uppercased()

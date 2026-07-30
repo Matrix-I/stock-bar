@@ -82,8 +82,15 @@ enum Theme {
         /// pushing the switch off the panel.
         static let switchGap = Theme.pt(12)
 
-        /// A row and the detail card that opens under it on hover.
+        /// Between a row and the card floating off it on hover — above or below, so it is read as the gap
+        /// on whichever side the card ended up.
         static let detailGap = Theme.pt(4)
+        /// How close the floating card may come to the panel's own edge before it is moved. The popover has
+        /// rounded corners and a shadow, and a card flush against that edge reads as clipped.
+        static let detailMargin = Theme.pt(4)
+        /// The floating card's shadow is offset downwards, the direction the light comes from in every other
+        /// macOS panel.
+        static let cardShadowY = Theme.pt(1)
         /// Inside the detail card: between its two column pairs, and between a label and its value.
         static let detailColumns = Theme.pt(14)
         static let detailLabel = Theme.pt(6)
@@ -107,6 +114,11 @@ enum Theme {
         /// nothing.
         static let minListHeight = Theme.pt(120)
         static let cardRadius = Theme.pt(5)
+        /// The floating card's hairline and the blur under it. A card that overlaps the rows below it needs
+        /// an edge of its own — without one it reads as a hole in the list rather than as a thing on top
+        /// of it.
+        static let cardBorder = Theme.pt(0.5)
+        static let cardShadow = Theme.pt(5)
     }
 
     // MARK: - Type
@@ -153,9 +165,15 @@ enum Theme {
         /// A reorder chevron at the end of the list: disabled, but still occupying its place so the rows
         /// stay aligned.
         static let disabledIcon: Double = 0.3
-        /// The hover card's own backing, over the popover's vibrancy. Deliberately faint: it has to read as
-        /// attached to the row above it, not as a window of its own.
-        static let detailCard: Double = 0.07
+        /// The floating hover card: a white highlight over its opaque fill, a hairline, and the blur beneath
+        /// it. The highlight is what makes the card lighter than the panel — which is what "raised" means,
+        /// the light in every macOS panel coming from above. White rather than `primary` so one number does
+        /// both appearances: it lifts the card off a near-black panel in dark mode, and in light mode it is
+        /// white over an already-white fill, which changes nothing and needs to, the card being lighter than
+        /// the grey panel already.
+        static let cardLift: Double = 0.07
+        static let cardBorder: Double = 0.14
+        static let cardShadow: Double = 0.28
     }
 
     // MARK: - Sparkline

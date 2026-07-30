@@ -1,8 +1,9 @@
-// QuoteDetailCard.swift — the panel that opens under a row while the pointer rests on it.
+// QuoteDetailCard.swift — the card that opens off a row while the pointer rests on it.
 //
 // It replaced the row's `.help()` tooltip. AppKit holds a tooltip back for one to two seconds and then
-// draws it in its own window, wherever the pointer happens to be; this appears at once, in the panel, under
-// the row it describes. What it says is QuoteDetail's decision — this file only lays it out.
+// draws it in its own window, wherever the pointer happens to be; this appears at once, in the panel,
+// against the row it describes. What it says is QuoteDetail's decision and where it goes is
+// DetailCardOverlay's — this file only lays it out and gives it its edge.
 //
 // Two columns rather than one because a Vietnamese equity has seven things worth saying, and seven stacked
 // rows would be taller than the quote row they annotate.
@@ -28,10 +29,35 @@ struct QuoteDetailCard: View {
         }
         .padding(Theme.Space.detailPadding)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(
-            RoundedRectangle(cornerRadius: Theme.Size.cardRadius, style: .continuous)
-                .fill(Color.primary.opacity(Theme.Opacity.detailCard))
-        )
+        .background(backing)
+    }
+
+    /// The card floats over the rows below it, so its backing has to do two things the old in-flow wash
+    /// didn't: hide what it covers, and look like it is on top.
+    ///
+    /// Opaque, because at 7% of the panel's own colour the prices underneath read straight through it — and
+    /// two numbers in the same place is the one thing a price panel must never do. `controlBackgroundColor`
+    /// rather than a `Material`: a material inside an already-vibrant popover blurs the desktop behind the
+    /// window, not the rows behind the card, which is the wrong backdrop and no help at all.
+    ///
+    /// The highlight over the fill is there because `controlBackgroundColor` and the popover's own background
+    /// are nearly the same colour in dark mode, and a card the colour of the panel reads as a hole cut in the
+    /// list rather than as something on top of it. The hairline and the shadow do the rest.
+    private var backing: some View {
+        RoundedRectangle(cornerRadius: Theme.Size.cardRadius, style: .continuous)
+            .fill(Color(nsColor: .controlBackgroundColor))
+            .overlay(
+                RoundedRectangle(cornerRadius: Theme.Size.cardRadius, style: .continuous)
+                    .fill(Color.white.opacity(Theme.Opacity.cardLift))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: Theme.Size.cardRadius, style: .continuous)
+                    .strokeBorder(Color.primary.opacity(Theme.Opacity.cardBorder),
+                                  lineWidth: Theme.Size.cardBorder)
+            )
+            .shadow(color: .black.opacity(Theme.Opacity.cardShadow),
+                    radius: Theme.Size.cardShadow,
+                    y: Theme.Space.cardShadowY)
     }
 
     /// Filled down the first column and then the second, so the band limits stay together and reading
