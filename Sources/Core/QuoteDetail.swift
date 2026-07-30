@@ -43,9 +43,15 @@ enum QuoteDetail {
         if let floor = quote.floor { rows.append(Row(label: "Floor", value: price(floor))) }
 
         if let reference = quote.reference {
-            // A venue that never closes has no previous close; Binance quotes its change against the price
-            // 24 hours ago on a rolling window, so the label has to say which baseline this is.
-            let label = quote.market == .vietnam ? "Reference" : "24h open"
+            // Three baselines, three words for them. A venue that never closes has no previous close, so
+            // Binance quotes its change against the price 24 hours ago on a rolling window; a VN board
+            // publishes a reference price the band is cut from; a world index simply closed yesterday.
+            let label: String
+            switch quote.market {
+            case .vietnam: label = "Reference"
+            case .crypto:  label = "24h open"
+            case .world:   label = "Prev close"
+            }
             rows.append(Row(label: label, value: price(reference, isIndex: entry.isIndex)))
         }
 

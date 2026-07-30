@@ -89,6 +89,21 @@ struct QuoteDetailTests {
         #expect(rows.contains { $0.label == "P/B" } == false)
     }
 
+    @Test("A world index closed yesterday, and the card says so in those words")
+    func worldIndex() {
+        // "Reference" is a VN board's published baseline the band is cut from, and "24h open" is a rolling
+        // window. Neither describes the Dow, which simply has a previous close.
+        let quote = Quote(symbol: "DJI", market: .world, price: 51_916.15, reference: 51_594.14,
+                          ceiling: nil, floor: nil, volume: 261_728_310, asOf: now)
+        let rows = QuoteDetail.rows(for: entry("DJI", .world), quote: quote,
+                                    fundamentals: vcbFundamentals, now: now)
+        #expect(rows.map(\.label) == ["Prev close", "Volume", "Updated"])
+        // Two decimals and grouped thousands, the way every board prints an index.
+        #expect(rows[0].value == "51,594.14")
+        // No valuation, whatever the dictionary happens to hold against its id.
+        #expect(rows.contains { $0.label == "P/E" } == false)
+    }
+
     @Test("With no fundamentals the card simply loses two rows")
     func withoutFundamentals() {
         let rows = QuoteDetail.rows(for: entry("VCB", .vietnam), quote: vcbQuote(), now: now)

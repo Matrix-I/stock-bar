@@ -62,6 +62,18 @@ struct PriceFormatTests {
         #expect(PriceFormat.price(62_400, market: .vietnam, isIndex: false) == "62,400")
         // The same number as a crypto price gains the cents a VND price drops.
         #expect(PriceFormat.price(62_400, market: .crypto, isIndex: false) == "62,400.00")
+        // A world index is always two decimals, whatever `isIndex` says — every one of them is one.
+        #expect(PriceFormat.price(51_916.15, market: .world, isIndex: true) == "51,916.15")
+        #expect(PriceFormat.price(24_997.7, market: .world, isIndex: false) == "24,997.70")
+    }
+
+    @Test("A world index is grouped with two decimals, in the app's separators not the locale's")
+    func worldPrice() {
+        #expect(PriceFormat.worldPrice(61_867.43) == "61,867.43")
+        #expect(PriceFormat.worldPrice(999.5) == "999.50")
+        // A Vietnamese locale would render this "51.891,46" — correct for the locale, and unreadable in a
+        // column beside the app's other rows.
+        #expect(PriceFormat.worldPrice(51_891.46) == "51,891.46")
     }
 
     // MARK: Signs

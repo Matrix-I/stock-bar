@@ -1,8 +1,9 @@
-# StockBar — Vietnamese stocks + crypto in the macOS menu bar
+# StockBar — Vietnamese stocks, crypto and world indices in the macOS menu bar
 
 A menu-bar ticker that refreshes about once a minute. Vietnamese equities and indices (HOSE/HNX) come
-from VPS's public market-data backends; crypto comes from Binance's public REST API. No API key, no
-account, no Python — the app talks to both over `URLSession`.
+from VPS's public market-data backends; crypto comes from Binance's public REST API; the Dow, the Nasdaq
+Composite and the Nikkei 225 come from Yahoo Finance's chart endpoint. No API key, no account, no Python —
+the app talks to all three over `URLSession`.
 
 ```bash
 ./build_app.sh            # compiles Sources/ into StockBar.app and relaunches it
@@ -69,6 +70,18 @@ The symbol list **scrolls** once it grows past what the screen can hold — 90% 
 height, measured on whichever display the popover actually opened on. Below that the panel is exactly as
 tall as its contents, so a four-row watchlist has no empty space. The header and the footer never scroll:
 Refresh, the add field, the settings and Quit stay reachable at any list length.
+
+**Three world indices are carried alongside the VN and crypto rows**: `DJI` (Dow Jones), `IXIC` (Nasdaq
+Composite) and `NI225` (Nikkei 225). They are typed like any other symbol — the picker's `World` setting is
+only a hint, since none of those names can belong to another venue — and `N225`, `^N225`, `DJIA` and `NASDAQ`
+are accepted as spellings of the same three. Each row's second line names its exchange (`New York`, `Tokyo`)
+rather than saying `Index`, because when a price hasn't moved in hours the useful thing to know is which
+clock it is on. `DOW` is deliberately *not* a spelling of the Dow: it is a real NYSE ticker (Dow Inc.).
+
+Their sessions are gated per venue, in the venue's own time zone: 09:30–16:00 New York, and 09:00–15:30
+Tokyo with its lunch break. That means Wall Street is polled from 20:30 ICT in summer and 21:30 in winter —
+which is why those two windows come from the system time-zone database rather than from a fixed offset the
+way Vietnam's does.
 
 **Adding a symbol checks it with the venue first.** Neither upstream rejects a bad ticker outright — the
 Vietnamese board just omits the row and Binance answers `400` — so a typo used to join the list and render
@@ -143,10 +156,18 @@ Crypto uses green/red only; it has no daily band.
 | Crypto | `api.binance.com/api/v3/ticker/24hr?symbols=[…]` | One request covers every pair. Reference is `openPrice` (24h rolling), matching Binance's own UI. |
 | Crypto sparkline | `api.binance.com/api/v3/klines?interval=1m&limit=60` | Last hour of 1-minute candles. |
 | VN fundamentals | `iboard-api.ssi.com.vn/statistics/company/financial-indicator?symbol=VCB` | EPS and the P/E–P/B pair the book value is recovered from. Cached for the ICT day. |
+| World indices | `query1.finance.yahoo.com/v8/finance/chart/%5EDJI?range=1d&interval=1m` | One request per index, carrying the live value, the previous close and the minute bars for the sparkline. |
 
 The VPS and SSI endpoints are the JSON services behind those brokers' own public web boards. They need no
 key and are community-known rather than formally documented, so treat them as something that can change
 without notice — `Tools/probe.sh` exists to tell you quickly when it has.
+
+Two things about the Yahoo endpoint, both established by probing it live on 2026-07-30. **`range=1d` is
+load-bearing**: `meta.chartPreviousClose` is the close before the first bar *of the requested range*, so the
+same call at `range=5d` returns the close from six sessions ago and produces a plausible, wrong change all
+day. And it is **one request per symbol** — the multi-symbol endpoint (`v7/finance/quote`) answers `401`
+without a crumb and cookie lifted from the web app. A `User-Agent` is required; with none at all the answer
+is `429`.
 
 The fundamentals feed was picked by elimination, all checked live on 2026-07-30: the VPS board this app
 already calls carries 57 fields and not one valuation ratio; TCBS's `tcanalysis` paths answer 404; Fireant
@@ -168,6 +189,8 @@ scaled. Getting this wrong is a 1000× error on screen.
 - HOSE session gating: weekdays 09:00–15:00 ICT, minus the 11:30–13:00 lunch break. That removes about
   85% of requests and stops the machine waking every minute for a number that cannot move. Crypto is
   always polled.
+- The world indices are polled while **either** of their venues is trading, and a row is only ever *aged*
+  against its own exchange's clock — otherwise every Dow row greyed out for the length of a Tokyo session.
 - Public holidays are deliberately not modelled — a stale hardcoded calendar would wrongly suppress
   polling on a real trading day, which is a worse failure than wasting a few requests on Tết.
 - A failed fetch never clears a quote. The last good value stays on screen and fades as it ages, because
@@ -188,10 +211,11 @@ appcast.xml                    the Sparkle feed, served raw from GitHub
 Package.swift + run_tests.sh   unit tests over Sources/Core; they do NOT build the app
 Sources/
   Core/                        the pure layer — Foundation only, and the only code the tests compile
-    Market.swift               the two venues; inferring one from a ticker; Ticker.isIndex
+    Market.swift               the three venues; inferring one from a ticker; Ticker.isIndex/canonical
+    WorldIndex.swift           the world-index table: typed name → Yahoo symbol, exchange, aliases
     Quote.swift                the shape every source normalises into; PriceBand, its arrow, the reset
     WatchedSymbol.swift        one configured row: its id, its menu-bar alias, its venue line
-    MarketHours.swift          HOSE session windows, the ICT day boundary, and the status line
+    MarketHours.swift          session windows for HOSE, New York and Tokyo; the ICT day boundary
     PriceFormat.swift          every number → the string on screen
     Fundamentals.swift         EPS and book value → P/E and P/B at the live price
     QuoteDetail.swift          the hover card's label/value rows, per kind of instrument
@@ -199,10 +223,11 @@ Sources/
     WatchlistRepair.swift      refile a symbol stored under a market that cannot serve it
     MenuBarLabel.swift         what the menu bar says, as an Equatable value
   Reader/                      the venues
-    QuoteSource.swift          the protocol both implement, and QuoteError
+    QuoteSource.swift          the protocol they all implement, and QuoteError
     HTTPClient.swift           shared URLSession + lenient JSON number coercion
     VNQuoteSource.swift        VPS board + TradingView UDF history
     CryptoQuoteSource.swift    Binance ticker + klines
+    WorldQuoteSource.swift     Yahoo chart endpoint: quote and sparkline from one response
     FundamentalsSource.swift   SSI financial-indicator, cached for the ICT day
   Store/                       the observable state the UI binds to
     QuoteReader.swift          cadence, fan-out, last-good-quote store, add-time validation
@@ -223,7 +248,7 @@ Sources/
     Panel/                       PanelHeader, SymbolList, QuoteRow, Sparkline,
                                  QuoteDetailCard, AddSymbolField, SettingsFooter
   App/StockBarApp.swift        NSStatusItem + NSPopover, entry point
-Tests/StockBarCoreTests/       86 tests over Sources/Core
+Tests/StockBarCoreTests/       102 tests over Sources/Core
 Tools/probe.sh                 exercises the data layer from the command line
 Tools/uisnap.sh                renders the popover to a PNG (no Screen Recording permission needed)
 Tools/makeicon.sh              regenerates AppIcon.icns from BrandMark (the .icns is committed)

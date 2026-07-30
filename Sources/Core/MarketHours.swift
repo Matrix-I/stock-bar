@@ -42,13 +42,67 @@ enum MarketHours {
         return cal
     }
 
+    /// New York and Tokyo, from the system time-zone database rather than as fixed offsets — the opposite
+    /// choice to `ict` above, and for the opposite reason. Vietnam has no DST, so arithmetic is exactly
+    /// right there and a missing database entry cannot hurt it. Eastern Time moves an hour twice a year, so
+    /// NO fixed offset is right all year: 09:30 in New York is 20:30 ICT in summer and 21:30 in winter, and
+    /// hardcoding either one puts the gate an hour out for half the year. The fallbacks are the standard
+    /// (winter) offsets, which only matter on a machine whose database has no entry at all.
+    private static let newYork = TimeZone(identifier: "America/New_York") ?? TimeZone(secondsFromGMT: -5 * 3600)!
+    private static let tokyo = TimeZone(identifier: "Asia/Tokyo") ?? TimeZone(secondsFromGMT: 9 * 3600)!
+
+    /// Wall Street: one continuous session, 09:30–16:00 ET, no lunch break.
+    private static let nyOpen = 9 * 60 + 30
+    private static let nyClose = 16 * 60
+    /// Tokyo: 09:00–11:30 and 12:30–15:30 JST. The close is 15:30 and not 15:00 — the TSE extended the
+    /// session in November 2024 and added the 15:25–15:30 closing auction; the feed's own
+    /// `currentTradingPeriod` says 15:30, which is what this was checked against.
+    private static let tokyoOpen = 9 * 60
+    private static let tokyoLunchStart = 11 * 60 + 30
+    private static let tokyoLunchEnd = 12 * 60 + 30
+    private static let tokyoClose = 15 * 60 + 30
+
     /// Whether `market` is in a session at `date`. Crypto is always true — the venues run 24/7,
     /// including weekends, which is precisely why it can't share the equity gate.
     static func isOpen(_ market: Market, at date: Date = Date()) -> Bool {
         switch market {
         case .crypto:  return true
         case .vietnam: return isVietnamSessionOpen(at: date)
+        case .world:   return WorldExchange.allCases.contains { isOpen(exchange: $0, at: date) }
         }
+    }
+
+    /// Whether one world venue is trading. Computed in the venue's OWN zone rather than by converting its
+    /// hours into ICT: a New York session runs 20:30–03:00 ICT, so an ICT window has to wrap past midnight
+    /// onto the next weekday, and that wrap plus DST is two chances to be an hour or a day out. In local
+    /// components there is no wrap and no DST arithmetic — 09:30 is 09:30 in New York in both halves of the
+    /// year.
+    static func isOpen(exchange: WorldExchange, at date: Date = Date()) -> Bool {
+        switch exchange {
+        case .newYork:
+            guard let (weekday, minutes) = weekdayAndMinutes(at: date, in: newYork) else { return false }
+            guard weekday != 1, weekday != 7 else { return false }
+            return minutes >= nyOpen && minutes < nyClose
+        case .tokyo:
+            guard let (weekday, minutes) = weekdayAndMinutes(at: date, in: tokyo) else { return false }
+            guard weekday != 1, weekday != 7 else { return false }
+            guard minutes >= tokyoOpen, minutes < tokyoClose else { return false }
+            return !(minutes >= tokyoLunchStart && minutes < tokyoLunchEnd)
+        }
+    }
+
+    /// Whether the venue that actually quotes `symbol` is trading.
+    ///
+    /// The same answer as `isOpen(market:)` for Vietnam and crypto, where a market IS one venue. `.world`
+    /// is a bucket of venues, and the difference shows: it counts as open whenever any of them is trading,
+    /// which is the right rule for "is this worth polling" and the wrong one for "should this row look
+    /// stale". Without narrowing to the symbol's own exchange, every Dow row greyed out through the whole
+    /// Tokyo session — six hours of a healthy feed looking broken.
+    static func isOpen(_ market: Market, symbol: String, at date: Date = Date()) -> Bool {
+        guard market == .world, let listing = WorldIndex.listing(for: symbol) else {
+            return isOpen(market, at: date)
+        }
+        return isOpen(exchange: listing.exchange, at: date)
     }
 
     /// True during a HOSE/HNX trading session: a weekday, inside 09:00–15:00 ICT, and not in the
@@ -80,6 +134,13 @@ enum MarketHours {
         switch market {
         case .crypto:
             return true
+        case .world:
+            // Not "the session has begun" so much as "there is no ICT day to wait for". A Wall Street
+            // session straddles ICT midnight — it opens at 20:30 and closes at 03:00 the next ICT day — and
+            // Yahoo rolls each index's previous close with its own venue's day, so the reset this predicate
+            // exists for (see Quote.rebasedForPendingSession) has nothing to do here. Answering false would
+            // flatten a Dow quote every ICT midnight, in the middle of the session it belongs to.
+            return true
         case .vietnam:
             guard let (weekday, minutes) = ictWeekdayAndMinutes(at: date) else { return false }
             guard weekday != 1, weekday != 7 else { return false }
@@ -97,7 +158,14 @@ enum MarketHours {
     }
 
     private static func ictWeekdayAndMinutes(at date: Date) -> (weekday: Int, minutes: Int)? {
-        let c = ictCalendar.dateComponents([.weekday, .hour, .minute], from: date)
+        weekdayAndMinutes(at: date, in: ict)
+    }
+
+    /// `date` as a local weekday (1 = Sunday … 7 = Saturday) and minutes past local midnight, in `zone`.
+    private static func weekdayAndMinutes(at date: Date, in zone: TimeZone) -> (weekday: Int, minutes: Int)? {
+        var cal = Calendar(identifier: .gregorian)
+        cal.timeZone = zone
+        let c = cal.dateComponents([.weekday, .hour, .minute], from: date)
         guard let weekday = c.weekday, let hour = c.hour, let minute = c.minute else { return nil }
         return (weekday, hour * 60 + minute)
     }
@@ -108,6 +176,13 @@ enum MarketHours {
         switch market {
         case .crypto:
             return "24/7"
+        case .world:
+            // Named by venue, because "world open" would be true for most of the day and answer nothing.
+            // No ICT clock time for the next open: Wall Street's lands at 20:30 or 21:30 depending on the
+            // month, and a line that is wrong for half the year is worse than one that omits it.
+            if isOpen(exchange: .newYork, at: date) { return "Wall St open" }
+            if isOpen(exchange: .tokyo, at: date) { return "Tokyo open" }
+            return "World markets closed"
         case .vietnam:
             if isVietnamSessionOpen(at: date) { return "HOSE open" }
             guard let (weekday, minutes) = ictWeekdayAndMinutes(at: date) else { return "HOSE closed" }

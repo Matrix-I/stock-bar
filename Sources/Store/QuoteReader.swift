@@ -68,6 +68,7 @@ final class QuoteReader: ObservableObject {
     private let watchlist: Watchlist
     private let vn = VNQuoteSource()
     private let crypto = CryptoQuoteSource()
+    private let world = WorldQuoteSource()
     private let fundamentalsFeed = FundamentalsSource()
 
     private lazy var poll = PollingTimer { [weak self] in self?.refresh() }
@@ -128,9 +129,13 @@ final class QuoteReader: ObservableObject {
     /// removed a real inconsistency: index quotes carry the timestamp of their last 1-minute bar (15:00),
     /// while the equity board reports the fetch time, so after the close the indices greyed out and the
     /// equities beside them did not — same data, two different appearances.
+    ///
+    /// Asked per SYMBOL, not per market, which only matters for the world indices: `.world` counts as open
+    /// whenever any of its venues is trading, and a Dow row would otherwise grey out for the whole Tokyo
+    /// session.
     func isStale(_ id: String) -> Bool {
         guard let q = lastGood[id] else { return false }
-        guard MarketHours.isOpen(q.market) else { return false }
+        guard MarketHours.isOpen(q.market, symbol: q.symbol) else { return false }
         return Date().timeIntervalSince(q.asOf) > Self.activeInterval * 1.5
     }
 
@@ -164,9 +169,9 @@ final class QuoteReader: ObservableObject {
     /// Deliberately does not write to `lastGood`: a symbol merely being considered has no row yet, and
     /// caching a price for it would flash a value into a list it may never join.
     func validate(_ symbol: String, market: Market) async -> SymbolCheck {
-        let wanted = symbol.trimmingCharacters(in: .whitespaces).uppercased()
+        let wanted = Ticker.canonical(symbol)
         guard !wanted.isEmpty else { return .unknown }
-        let source: any QuoteSource = market == .vietnam ? vn : crypto
+        let source = self.source(for: market)
         do {
             let quoted = try await source.fetchQuotes(for: [wanted])
             return quoted.contains { $0.symbol.uppercased() == wanted } ? .ok : .unknown
@@ -190,31 +195,28 @@ final class QuoteReader: ObservableObject {
 
         let symbols = watchlist.symbols
         let wantHistory = panelOpen
-        let vnSymbols = symbols.filter { $0.market == .vietnam }
-        let cryptoSymbols = symbols.filter { $0.market == .crypto }
-        // Decided here, on the main actor, rather than inside the Task: it reads `lastGood`, which is
-        // main-actor state, and hoisting it also means the Task captures two plain Bools instead of
-        // reaching back into self mid-flight.
-        let fetchVN = shouldFetch(.vietnam, vnSymbols)
-        let fetchCrypto = shouldFetch(.crypto, cryptoSymbols)
+        // Which venues are worth calling this tick, and what to ask each for. Built here, on the main actor,
+        // rather than inside the Task: `shouldFetch` reads `lastGood`, which is main-actor state, and
+        // hoisting it means the Task captures a plain list instead of reaching back into self mid-flight.
+        // One entry per market rather than three hand-written branches, so a fourth venue is a case in
+        // `source(for:)` and nothing here.
+        let plan: [(market: Market, source: any QuoteSource, symbols: [String])] =
+            Market.allCases.compactMap { market in
+                let entries = symbols.filter { $0.market == market }
+                guard shouldFetch(market, entries) else { return nil }
+                return (market, source(for: market), entries.map(\.symbol))
+            }
 
         Task { [weak self] in
             guard let self else { return }
             var failures: [String] = []
             var fetched: [Quote] = []
 
-            if fetchVN {
+            for step in plan {
                 do {
-                    fetched += try await self.vn.fetchQuotes(for: vnSymbols.map(\.symbol))
+                    fetched += try await step.source.fetchQuotes(for: step.symbols)
                 } catch {
-                    failures.append("VN: \(error.localizedDescription)")
-                }
-            }
-            if fetchCrypto {
-                do {
-                    fetched += try await self.crypto.fetchQuotes(for: cryptoSymbols.map(\.symbol))
-                } catch {
-                    failures.append("Crypto: \(error.localizedDescription)")
+                    failures.append("\(step.market.shortLabel): \(error.localizedDescription)")
                 }
             }
 
@@ -236,6 +238,16 @@ final class QuoteReader: ObservableObject {
                 self.refreshQueued = false
                 self.refresh()
             }
+        }
+    }
+
+    /// The venue implementation behind a market. The one place the mapping lives, so `refresh`, `validate`
+    /// and the sparkline fetch cannot disagree about which backend serves a row.
+    private func source(for market: Market) -> any QuoteSource {
+        switch market {
+        case .vietnam: return vn
+        case .crypto:  return crypto
+        case .world:   return world
         }
     }
 
@@ -277,15 +289,13 @@ final class QuoteReader: ObservableObject {
     /// Fetch sparkline history for every watched symbol, concurrently. Errors are swallowed: a missing
     /// sparkline just draws nothing, and it is not worth surfacing next to a price that arrived fine.
     private func refreshHistory(for symbols: [WatchedSymbol]) async {
-        let vnSource = vn
-        let cryptoSource = crypto
+        // Each row's source is resolved up front so the task group captures values rather than self.
+        let work = symbols.map { (entry: $0, source: source(for: $0.market)) }
         let results = await withTaskGroup(of: (String, [Double])?.self) { group in
-            for entry in symbols {
+            for (entry, source) in work {
                 group.addTask {
                     do {
-                        let closes = entry.market == .vietnam
-                            ? try await vnSource.fetchHistory(for: entry.symbol)
-                            : try await cryptoSource.fetchHistory(for: entry.symbol)
+                        let closes = try await source.fetchHistory(for: entry.symbol)
                         return closes.isEmpty ? nil : (entry.id, closes)
                     } catch {
                         return nil

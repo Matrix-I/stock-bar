@@ -50,7 +50,9 @@ final class Watchlist: ObservableObject {
     }
 
     func add(_ symbol: String, market: Market) {
-        let normalised = symbol.trimmingCharacters(in: .whitespaces).uppercased()
+        // Trimmed, upper-cased and resolved to one spelling per instrument — see Ticker.canonical. The id is
+        // "market:symbol", so an alias stored as typed would be a second row quoting the same index.
+        let normalised = Ticker.canonical(symbol)
         guard !normalised.isEmpty else { return }
         // The picker is a hint, not the last word: a ticker that could only have come from one venue is
         // filed there whatever was selected. Otherwise the picker's "VN" default silently turns a typed

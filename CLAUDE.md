@@ -103,6 +103,13 @@ panel. `uisnap` reports the panel height, and the hover states must report the s
   Don't `cd` into it (that breaks codesign paths) and don't commit it.
 - **VN prices are real VND in the model.** The VPS board reports equities in thousands and indices in
   points; the scaling happens once, in `VNQuoteSource`. Getting it wrong is a 1000× error on screen.
+- **`.world` is a bucket of venues, not one venue.** `Market` picks the data source and one Yahoo source
+  serves the Dow, the Nasdaq and the Nikkei; what differs is the trading day, which each symbol carries via
+  `WorldIndex.listing`. So `isOpen(.world)` is the union — right for "is this worth polling" and wrong for
+  "should this row look stale", which is why `QuoteReader.isStale` asks `isOpen(_:symbol:)` instead. New
+  York's and Tokyo's windows come from the system time-zone database, unlike Vietnam's fixed +07:00: ET moves
+  an hour twice a year, so 09:30 there is 20:30 ICT in summer and 21:30 in winter and no fixed offset is
+  right all year. Adding an index is a row in `WorldIndex.all`; adding a *venue* is also a window here.
 - **A change figure belongs to a session, and the day turns at ICT midnight.** Both feeds keep serving the
   finished session's numbers until the next one starts, so `QuoteReader.quotes` runs every quote through
   `Quote.rebasedForPendingSession(at:)`, which rebases a VN quote onto its own last close once the day has

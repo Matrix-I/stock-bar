@@ -17,17 +17,17 @@ enum PriceFormat {
     /// below it so a sub-1000-VND penny stock doesn't collapse to a flat integer. Indices (VN-Index at
     /// ~1,250.36) keep two decimals — that's how every Vietnamese board prints them.
     static func vnPrice(_ value: Double, isIndex: Bool) -> String {
-        let f = NumberFormatter()
-        f.numberStyle = .decimal
-        f.groupingSeparator = ","
-        f.decimalSeparator = "."
-        if isIndex {
-            f.minimumFractionDigits = 2
-            f.maximumFractionDigits = 2
-        } else {
-            f.maximumFractionDigits = value < 1000 ? 1 : 0
-        }
+        if isIndex { return grouped(value, fractionDigits: 2) }
+        let f = decimalFormatter()
+        f.maximumFractionDigits = value < 1000 ? 1 : 0
         return f.string(from: NSNumber(value: value)) ?? String(value)
+    }
+
+    /// A world index: grouped thousands and two decimals, the way every board prints them (Dow 51,891.46,
+    /// Nikkei 61,867.43). Not routed through `cryptoPrice`, which happens to agree at these magnitudes but
+    /// would start adding four and eight decimal places if it were ever handed something small.
+    static func worldPrice(_ value: Double) -> String {
+        grouped(value, fractionDigits: 2)
     }
 
     /// A crypto price. Precision scales with magnitude because the same formatter has to serve BTC at
@@ -38,10 +38,7 @@ enum PriceFormat {
     /// a price happens to land on a whole number — with a variable count the menu-bar item jitters
     /// sideways every time the cents hit .00.
     static func cryptoPrice(_ value: Double) -> String {
-        let f = NumberFormatter()
-        f.numberStyle = .decimal
-        f.groupingSeparator = ","
-        f.decimalSeparator = "."
+        let f = decimalFormatter()
         switch abs(value) {
         case 1...:       f.minimumFractionDigits = 2; f.maximumFractionDigits = 2
         case 0.01..<1:   f.maximumFractionDigits = 4
@@ -56,7 +53,29 @@ enum PriceFormat {
     /// (VN-Index 1704.68 → "1705", BTC 64,134 → "64.0k") while the popover printed the exact figure, so
     /// the same instrument read as two different prices depending on where you looked.
     static func price(_ value: Double, market: Market, isIndex: Bool) -> String {
-        market == .vietnam ? vnPrice(value, isIndex: isIndex) : cryptoPrice(value)
+        switch market {
+        case .vietnam: return vnPrice(value, isIndex: isIndex)
+        case .crypto:  return cryptoPrice(value)
+        case .world:   return worldPrice(value)
+        }
+    }
+
+    /// Grouped thousands with a fixed number of decimals. The separators are set explicitly rather than
+    /// left to the locale: these are exchange prices, and a Vietnamese locale would render the Dow as
+    /// "51.891,46" — correct for the locale and unreadable next to the app's other rows.
+    private static func grouped(_ value: Double, fractionDigits: Int) -> String {
+        let f = decimalFormatter()
+        f.minimumFractionDigits = fractionDigits
+        f.maximumFractionDigits = fractionDigits
+        return f.string(from: NSNumber(value: value)) ?? String(value)
+    }
+
+    private static func decimalFormatter() -> NumberFormatter {
+        let f = NumberFormatter()
+        f.numberStyle = .decimal
+        f.groupingSeparator = ","
+        f.decimalSeparator = "."
+        return f
     }
 
     // MARK: - Changes

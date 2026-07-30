@@ -43,6 +43,9 @@ struct WatchedSymbol: Codable, Sendable, Hashable, Identifiable {
         switch market {
         case .crypto:  return "Binance"
         case .vietnam: return Ticker.isIndex(symbol) ? "Index" : "HOSE"
+        // The exchange, not "Index": every world row here IS one, so the word would distinguish nothing,
+        // while the venue says which clock the row is on — the answer to why the Dow sat still all morning.
+        case .world:   return WorldIndex.listing(for: symbol)?.exchange.label ?? "World"
         }
     }
 

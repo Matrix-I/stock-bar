@@ -14,9 +14,24 @@ enum Market: String, Codable, Sendable, CaseIterable {
     case vietnam
     /// Crypto pairs — always open.
     case crypto
+    /// The world indices in `WorldIndex.all` — Wall Street and Tokyo. One market rather than one per
+    /// country because a market here selects a data source, and a single feed serves all of them; the
+    /// venue, which is what actually differs, is carried per symbol by the listing.
+    case world
 }
 
 extension Market {
+    /// The market's name where it has to share a line with something else — the Add field's verdict and the
+    /// failure prefix under the panel. Short because both are read at a glance, next to the thing that
+    /// matters more.
+    var shortLabel: String {
+        switch self {
+        case .vietnam: return "VN"
+        case .crypto:  return "Crypto"
+        case .world:   return "World"
+        }
+    }
+
     /// Quote assets a Binance pair can be denominated in that no Vietnamese ticker could ever end with.
     /// Deliberately only the stablecoins: they are all four characters or more, while a HOSE/HNX ticker
     /// is three letters and the indices are a handful of known names, so a suffix match here cannot
@@ -38,6 +53,9 @@ extension Market {
         if cryptoQuoteAssets.contains(where: { upper.hasSuffix($0) && upper.count > $0.count }) {
             return .crypto
         }
+        // A named world index can only be served by one feed, and none of these names is a ticker on the
+        // Vietnamese board — checked against it, including the three-letter DJI, before adding them.
+        if WorldIndex.listing(for: upper) != nil { return .world }
         return nil
     }
 }
@@ -49,6 +67,18 @@ enum Ticker {
     /// this one predicate is consulted by the feed, the formatter and the row.
     static func isIndex(_ symbol: String) -> Bool {
         let s = symbol.uppercased()
+        if WorldIndex.listing(for: s) != nil { return true }
         return s.hasSuffix("INDEX") || s == "VN30" || s == "HNX30"
+    }
+
+    /// The spelling this app stores a typed symbol under: trimmed, upper-cased, and resolved to the
+    /// canonical name where a venue and its readers disagree about one ("N225" and "^N225" are both the
+    /// Nikkei this app calls NI225).
+    ///
+    /// Done once, at the front door, so the alias never reaches the watchlist: the id is "market:symbol",
+    /// so two spellings of one index would otherwise be two rows quoting the same number.
+    static func canonical(_ typed: String) -> String {
+        let s = typed.trimmingCharacters(in: .whitespaces).uppercased()
+        return WorldIndex.listing(for: s)?.symbol ?? s
     }
 }

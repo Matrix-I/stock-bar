@@ -3,8 +3,8 @@
 // bundle. It exists because a menu-bar app gives you nowhere to look when a fetch misbehaves.
 //
 // Run:
-//   ./Tools/probe.sh                 # the shipped defaults
-//   ./Tools/probe.sh VCB FPT BTCUSDT # specific symbols (crypto detected by a USDT/USDC suffix)
+//   ./Tools/probe.sh                     # the shipped defaults
+//   ./Tools/probe.sh VCB BTCUSDT DJI     # specific symbols; the venue is inferred the way the app does it
 
 import Foundation
 import AppKit
@@ -22,52 +22,51 @@ private func row(_ symbol: String, _ price: String, _ ref: String,
             pad(change, 10, right: true), pad(band, 10, right: true), " " + menuBar].joined(separator: " ")
 }
 
+/// The venue behind a market, the way QuoteReader resolves it. Duplicated here rather than exposed from the
+/// store, whose copy is private to an @MainActor class the probe has no reason to instantiate.
+private func source(for market: Market) -> QuoteSource {
+    switch market {
+    case .vietnam: return VNQuoteSource()
+    case .crypto:  return CryptoQuoteSource()
+    case .world:   return WorldQuoteSource()
+    }
+}
+
 @main
 struct Probe {
     static func main() async {
         let args = Array(CommandLine.arguments.dropFirst())
-        let requested = args.isEmpty
+        // Inferred exactly as the app does it, so a probe of DJI exercises the same routing decision the
+        // Add field makes — a hand-rolled suffix test here is how the probe and the app come to disagree
+        // about which backend owns a symbol.
+        let requested: [(String, Market)] = args.isEmpty
             ? Watchlist.shipped.map { ($0.symbol, $0.market) }
-            : args.map { arg -> (String, Market) in
-                let s = arg.uppercased()
-                let isCrypto = s.hasSuffix("USDT") || s.hasSuffix("USDC")
-                return (s, isCrypto ? .crypto : .vietnam)
+            : args.map { arg in
+                let s = Ticker.canonical(arg)
+                return (s, Market.inferred(for: s) ?? .vietnam)
             }
-
-        let vnSymbols = requested.filter { $0.1 == .vietnam }.map(\.0)
-        let cryptoSymbols = requested.filter { $0.1 == .crypto }.map(\.0)
 
         print("StockBar data probe · \(Date())")
         print("HOSE session: \(MarketHours.statusText(for: .vietnam))")
+        print("World:        \(MarketHours.statusText(for: .world))")
         print(String(repeating: "─", count: 78))
 
         var quotes: [Quote] = []
 
-        if !vnSymbols.isEmpty {
-            let source = VNQuoteSource()
+        for market in Market.allCases {
+            let symbols = requested.filter { $0.1 == market }.map(\.0)
+            guard !symbols.isEmpty else { continue }
+            let label = market.shortLabel.padding(toLength: 6, withPad: " ", startingAt: 0)
             do {
                 let t0 = Date()
-                let got = try await source.fetchQuotes(for: vnSymbols)
-                print(String(format: "VN     %2d/%2d symbols in %.2fs", got.count, vnSymbols.count,
+                let got = try await source(for: market).fetchQuotes(for: symbols)
+                print(String(format: "%@ %2d/%2d symbols in %.2fs", label, got.count, symbols.count,
                              Date().timeIntervalSince(t0)))
                 quotes += got
-                let missing = Set(vnSymbols).subtracting(got.map { $0.symbol })
+                let missing = Set(symbols).subtracting(got.map { $0.symbol })
                 if !missing.isEmpty { print("       ⚠ no data: \(missing.sorted().joined(separator: ", "))") }
             } catch {
-                print("VN     ✗ \(error.localizedDescription)")
-            }
-        }
-
-        if !cryptoSymbols.isEmpty {
-            let source = CryptoQuoteSource()
-            do {
-                let t0 = Date()
-                let got = try await source.fetchQuotes(for: cryptoSymbols)
-                print(String(format: "Crypto %2d/%2d symbols in %.2fs", got.count, cryptoSymbols.count,
-                             Date().timeIntervalSince(t0)))
-                quotes += got
-            } catch {
-                print("Crypto ✗ \(error.localizedDescription)")
+                print("\(label) ✗ \(error.localizedDescription)")
             }
         }
 
@@ -90,9 +89,8 @@ struct Probe {
         // them separately too.
         print(String(repeating: "─", count: 78))
         for (symbol, market) in requested {
-            let source: QuoteSource = market == .vietnam ? VNQuoteSource() : CryptoQuoteSource()
             do {
-                let closes = try await source.fetchHistory(for: symbol)
+                let closes = try await source(for: market).fetchHistory(for: symbol)
                 let range = closes.isEmpty ? "—" : "\(closes.min()!) … \(closes.max()!)"
                 print("history \(symbol): \(closes.count) bars, range \(range)")
             } catch {

@@ -31,6 +31,7 @@ struct AddSymbolField: View {
                 Picker("", selection: $market) {
                     Text("VN").tag(Market.vietnam)
                     Text("Crypto").tag(Market.crypto)
+                    Text("World").tag(Market.world)
                 }
                 .labelsHidden()
                 .frame(width: Theme.Size.marketPicker)
@@ -38,7 +39,7 @@ struct AddSymbolField: View {
                 // Typing clears the last verdict: leaving "XYZ isn't listed" under a field that now reads
                 // something else accuses the wrong symbol. Done through the binding rather than
                 // .onChange(of:perform:), which is deprecated, while its replacement is macOS 14+.
-                TextField(market == .vietnam ? "VCB / VNINDEX" : "BTCUSDT",
+                TextField(Self.placeholder(for: market),
                           text: Binding(get: { symbol },
                                         set: { symbol = $0; message = nil }))
                     .textFieldStyle(.roundedBorder)
@@ -68,8 +69,20 @@ struct AddSymbolField: View {
         }
     }
 
+    /// What the field suggests typing. Three examples for World rather than one, because unlike a HOSE
+    /// ticker or a Binance pair, nobody guesses that the Nasdaq is spelled IXIC here.
+    private static func placeholder(for market: Market) -> String {
+        switch market {
+        case .vietnam: return "VCB / VNINDEX"
+        case .crypto:  return "BTCUSDT"
+        case .world:   return "DJI / IXIC / NI225"
+        }
+    }
+
     private func add() {
-        let typed = symbol.trimmingCharacters(in: .whitespaces).uppercased()
+        // Canonical, not merely upper-cased: "N225" is the Nikkei this app files as NI225, and checking the
+        // typed spelling against the list would let the same index in twice under two names.
+        let typed = Ticker.canonical(symbol)
         guard !typed.isEmpty, !checking else { return }
         // The ticker itself overrules the picker, so BTCUSDT typed against the "VN" default is checked
         // against Binance rather than being reported as an unlisted Vietnamese equity. See Market.inferred.
@@ -92,9 +105,15 @@ struct AddSymbolField: View {
                 watchlist.add(typed, market: venue)
                 symbol = ""
             case .unknown:
-                message = venue == .vietnam
-                    ? "\(typed) isn't listed on HOSE/HNX — check the ticker."
-                    : "\(typed) isn't a pair on Binance — check the ticker."
+                // Named by venue, because "not listed" is only actionable if you know who was asked.
+                switch venue {
+                case .vietnam:
+                    message = "\(typed) isn't listed on HOSE/HNX — check the ticker."
+                case .crypto:
+                    message = "\(typed) isn't a pair on Binance — check the ticker."
+                case .world:
+                    message = "\(typed) isn't an index we can fetch — try DJI, IXIC or NI225."
+                }
             case .unreachable(let why):
                 // Not added. The symbol may well be real, but adding it on an unverified guess is how the
                 // permanent-dash row got here in the first place; the message names the check as the thing
