@@ -103,6 +103,14 @@ panel. `uisnap` reports the panel height, and the hover states must report the s
   Don't `cd` into it (that breaks codesign paths) and don't commit it.
 - **VN prices are real VND in the model.** The VPS board reports equities in thousands and indices in
   points; the scaling happens once, in `VNQuoteSource`. Getting it wrong is a 1000× error on screen.
+- **A change figure belongs to a session, and the day turns at ICT midnight.** Both feeds keep serving the
+  finished session's numbers until the next one starts, so `QuoteReader.quotes` runs every quote through
+  `Quote.rebasedForPendingSession(at:)`, which rebases a VN quote onto its own last close once the day has
+  rolled past it — flat, no band, price intact. Two regressions to watch for. Doing it at fetch time instead:
+  nothing is fetched between the close and the next open, so there would be no event at midnight to trigger
+  it, and the correction has to be a function of the read. And testing the clock instead of the reading's
+  `asOf`: at 09:05 the board is mid-auction with no matched price, so the previous day's change would come
+  back for the ten minutes until a real quote lands.
 - **Anything derived from a price is derived from OUR price.** The fundamentals feed hands over a
   ready-made P/E and P/B computed against a snapshot of its own — for VCB that snapshot was 59,900 against
   a board price of 54,600. Only its per-share figures are kept; the ratios are recomputed in

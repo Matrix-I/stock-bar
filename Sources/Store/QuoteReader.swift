@@ -21,8 +21,31 @@ import AppKit
 @MainActor
 final class QuoteReader: ObservableObject {
 
-    /// Last good quote per `WatchedSymbol.id`. Never pruned on failure — see the note above.
-    @Published private(set) var quotes: [String: Quote] = [:]
+    /// Last good quote per `WatchedSymbol.id`, exactly as the feed reported it. Never pruned on failure —
+    /// see the note above. Private, because a fetched quote is not what anything should draw: read `quotes`.
+    @Published private var lastGood: [String: Quote] = [:]
+
+    /// The quotes to draw, which is what was fetched read at the current moment.
+    ///
+    /// Computed rather than stored because the correction is a function of the clock, not of the fetch. Once
+    /// HOSE closes nothing is fetched again until it opens — `shouldFetch` sees no reason to — so a quote
+    /// baked at 15:00 is the same object the menu bar is still drawing at 00:01, and rebasing it on the way
+    /// in would have nothing to trigger it at midnight. Doing it on the way out means the flip costs nothing
+    /// and happens on the tick: the menu bar rebuilds at 1 Hz, and the panel re-renders whenever `lastGood`
+    /// is reassigned, which `apply` does on every poll whether or not anything was fetched.
+    ///
+    /// Applying it here rather than at the three call sites is deliberate. The menu bar, the row and the
+    /// hover card would otherwise each have to remember to ask, and the one that forgot would disagree with
+    /// the other two about the same instrument — which is the class of bug `PriceFormat` exists to prevent.
+    var quotes: [String: Quote] {
+        let now = Date()
+        return lastGood.mapValues { $0.rebasedForPendingSession(at: now) }
+    }
+
+    /// Fires when a fetch has been merged. Subscribed to by the menu bar so a manual Refresh redraws at
+    /// once instead of at its next 1 Hz tick. It publishes the fetched dictionary rather than the drawn one
+    /// because it is a signal, not a value — a subscriber that wants the numbers reads `quotes`.
+    var quotesDidChange: Published<[String: Quote]>.Publisher { $lastGood }
     /// Recent closes per `WatchedSymbol.id` for the popover sparklines. Only fetched while the popover
     /// is open, since nothing else draws them.
     @Published private(set) var history: [String: [Double]] = [:]
@@ -106,7 +129,7 @@ final class QuoteReader: ObservableObject {
     /// while the equity board reports the fetch time, so after the close the indices greyed out and the
     /// equities beside them did not — same data, two different appearances.
     func isStale(_ id: String) -> Bool {
-        guard let q = quotes[id] else { return false }
+        guard let q = lastGood[id] else { return false }
         guard MarketHours.isOpen(q.market) else { return false }
         return Date().timeIntervalSince(q.asOf) > Self.activeInterval * 1.5
     }
@@ -115,7 +138,7 @@ final class QuoteReader: ObservableObject {
     /// call `isStale` itself: that keeps the wall clock out of the pure layer, so a label can be compared
     /// for equality and asserted on in a test.
     var staleIDs: Set<String> {
-        Set(quotes.keys.filter { isStale($0) })
+        Set(lastGood.keys.filter { isStale($0) })
     }
 
     /// The verdict on a symbol someone is trying to add. Three cases rather than a Bool because "the
@@ -138,7 +161,7 @@ final class QuoteReader: ObservableObject {
     /// looking exactly like a network problem. Checking once at the point of entry is the only place the
     /// difference is still knowable.
     ///
-    /// Deliberately does not write to `quotes`: a symbol merely being considered has no row yet, and
+    /// Deliberately does not write to `lastGood`: a symbol merely being considered has no row yet, and
     /// caching a price for it would flash a value into a list it may never join.
     func validate(_ symbol: String, market: Market) async -> SymbolCheck {
         let wanted = symbol.trimmingCharacters(in: .whitespaces).uppercased()
@@ -169,7 +192,7 @@ final class QuoteReader: ObservableObject {
         let wantHistory = panelOpen
         let vnSymbols = symbols.filter { $0.market == .vietnam }
         let cryptoSymbols = symbols.filter { $0.market == .crypto }
-        // Decided here, on the main actor, rather than inside the Task: it reads `quotes`, which is
+        // Decided here, on the main actor, rather than inside the Task: it reads `lastGood`, which is
         // main-actor state, and hoisting it also means the Task captures two plain Bools instead of
         // reaching back into self mid-flight.
         let fetchVN = shouldFetch(.vietnam, vnSymbols)
@@ -222,10 +245,10 @@ final class QuoteReader: ObservableObject {
     private func shouldFetch(_ market: Market, _ entries: [WatchedSymbol]) -> Bool {
         guard !entries.isEmpty else { return false }
         if MarketHours.isOpen(market) { return true }
-        return entries.contains { quotes[$0.id] == nil }
+        return entries.contains { lastGood[$0.id] == nil }
     }
 
-    /// Merge a batch of fetched quotes into `quotes`, keyed back to the watchlist entry they belong to.
+    /// Merge a batch of fetched quotes into `lastGood`, keyed back to the watchlist entry they belong to.
     ///
     /// The join is by (market, uppercased symbol) rather than by array position: the board endpoint
     /// returns rows in its own order and omits tickers it doesn't recognise, so positional matching
@@ -235,11 +258,11 @@ final class QuoteReader: ObservableObject {
         for q in fetched { byKey["\(q.market.rawValue):\(q.symbol.uppercased())"] = q }
 
         for entry in symbols {
-            if let q = byKey[entry.id] { quotes[entry.id] = q }
+            if let q = byKey[entry.id] { lastGood[entry.id] = q }
         }
         // Drop quotes for symbols no longer watched, so a removed row doesn't linger in the menu bar.
         let live = Set(symbols.map(\.id))
-        quotes = quotes.filter { live.contains($0.key) }
+        lastGood = lastGood.filter { live.contains($0.key) }
         history = history.filter { live.contains($0.key) }
         fundamentals = fundamentals.filter { live.contains($0.key) }
 

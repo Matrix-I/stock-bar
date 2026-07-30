@@ -92,7 +92,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         // Redraw as soon as new quotes land instead of waiting for the next poll tick, so a manual
         // Refresh feels immediate.
-        reader.$quotes
+        reader.quotesDidChange
             .receive(on: RunLoop.main)
             .sink { [weak self] _ in self?.refreshLabel() }
             .store(in: &cancellables)

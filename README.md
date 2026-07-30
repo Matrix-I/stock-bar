@@ -51,6 +51,15 @@ StockBar is in but says nothing about which app you would click to change it. A 
 has no quote yet still shows as text with a dash: an icon there would hide a symbol you asked for and make
 a broken feed look like an idle app.
 
+**Past midnight a Vietnamese row reads flat until its session opens.** The board goes on serving the
+finished session's closing price against that session's reference until it rolls over the next morning, so
+without this a stock sat there claiming `+3.48%` at two in the morning and all weekend — yesterday's answer
+to today's question. From ICT midnight the change is rebased onto the last close, which is precisely the
+reference HOSE will publish for the coming session: the price stays, the percentage reads `0.00%`, and the
+row is the board's own tham chiếu yellow until something actually trades. The card's Ceiling and Floor drop
+out with it, because a ±7% band belongs to the reference it was cut from. Crypto is untouched — Binance
+quotes against a rolling 24 hours, not a session, so it has no midnight to observe.
+
 The pencil turns on edit mode, which gives each row pin / move up / move down / remove. The sparkline
 hides while editing to make room — four controls plus a chart and a price don't fit on one row without
 truncating the change. Pinned symbols are drawn in watchlist order and only the first four get a slot,
@@ -180,9 +189,9 @@ Package.swift + run_tests.sh   unit tests over Sources/Core; they do NOT build t
 Sources/
   Core/                        the pure layer — Foundation only, and the only code the tests compile
     Market.swift               the two venues; inferring one from a ticker; Ticker.isIndex
-    Quote.swift                the shape every source normalises into; PriceBand and its arrow
+    Quote.swift                the shape every source normalises into; PriceBand, its arrow, the reset
     WatchedSymbol.swift        one configured row: its id, its menu-bar alias, its venue line
-    MarketHours.swift          HOSE session windows, and the status line that explains them
+    MarketHours.swift          HOSE session windows, the ICT day boundary, and the status line
     PriceFormat.swift          every number → the string on screen
     Fundamentals.swift         EPS and book value → P/E and P/B at the live price
     QuoteDetail.swift          the hover card's label/value rows, per kind of instrument
@@ -214,7 +223,7 @@ Sources/
     Panel/                       PanelHeader, SymbolList, QuoteRow, Sparkline,
                                  QuoteDetailCard, AddSymbolField, SettingsFooter
   App/StockBarApp.swift        NSStatusItem + NSPopover, entry point
-Tests/StockBarCoreTests/       77 tests over Sources/Core
+Tests/StockBarCoreTests/       86 tests over Sources/Core
 Tools/probe.sh                 exercises the data layer from the command line
 Tools/uisnap.sh                renders the popover to a PNG (no Screen Recording permission needed)
 Tools/makeicon.sh              regenerates AppIcon.icns from BrandMark (the .icns is committed)

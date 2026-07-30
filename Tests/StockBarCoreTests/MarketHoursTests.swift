@@ -69,6 +69,34 @@ struct MarketHoursTests {
         #expect(MarketHours.statusText(for: .crypto, at: wednesday(3, 0)) == "24/7")
     }
 
+    @Test("A day's session has started from 09:00 until midnight, lunch break included")
+    func sessionStarted() {
+        // Not the same question as isOpen: this one asks whether the day has any movement to report yet, so
+        // it must stay true through the hole at 12:00 and through the whole evening. A version of it written
+        // as `isOpen` would let the change figure go flat over lunch and again after 15:00.
+        #expect(MarketHours.hasSessionStarted(.vietnam, at: wednesday(8, 59)) == false)
+        #expect(MarketHours.hasSessionStarted(.vietnam, at: wednesday(9, 0)))
+        #expect(MarketHours.hasSessionStarted(.vietnam, at: wednesday(12, 0)))
+        #expect(MarketHours.hasSessionStarted(.vietnam, at: wednesday(23, 59)))
+        #expect(MarketHours.hasSessionStarted(.vietnam, at: wednesday(0, 1)) == false)
+    }
+
+    @Test("A weekend day never starts a session, at any hour")
+    func sessionNeverStartsAtTheWeekend() {
+        // Which is what keeps Friday's move from being reported as Saturday's.
+        #expect(MarketHours.hasSessionStarted(.vietnam, at: ict(2026, 8, 1, 10, 0)) == false)
+        #expect(MarketHours.hasSessionStarted(.vietnam, at: ict(2026, 8, 2, 20, 0)) == false)
+        #expect(MarketHours.hasSessionStarted(.crypto, at: ict(2026, 8, 2, 20, 0)))
+    }
+
+    @Test("The session day turns at ICT midnight, not at the machine's own")
+    func sessionDayBoundary() {
+        // A machine in UTC is 7 hours behind: 23:30 ICT is still the previous UTC day, and a day boundary
+        // computed in the local zone would move the reset by those 7 hours.
+        #expect(MarketHours.isSameSessionDay(wednesday(9, 15), wednesday(23, 59)))
+        #expect(MarketHours.isSameSessionDay(wednesday(23, 59), ict(2026, 7, 30, 0, 1)) == false)
+    }
+
     @Test("Indochina Time is a fixed +07:00, with no DST to track")
     func fixedOffset() {
         // Vietnam has observed no DST since 1975. A fixed offset is what keeps the gate correct even on a

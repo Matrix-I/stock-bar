@@ -86,4 +86,50 @@ struct Quote: Sendable, Identifiable {
     /// Whether this is an index rather than a tradable stock — see `Ticker.isIndex`. Read by the row,
     /// the tooltip and the menu-bar label, all of which format an index differently.
     var isIndex: Bool { Ticker.isIndex(symbol) }
+
+    // MARK: - The day boundary
+
+    /// Whether this reading is about the ICT day `now` falls in.
+    ///
+    /// A finished session's numbers do not expire when it closes — the VPS board keeps serving the closing
+    /// price against the closing session's reference until it rolls over on the morning of the next one, and
+    /// an index's last 1-minute bar is likewise the last one that exists. So "the feed answered" is not the
+    /// same as "this is about today", and the test is the reading's own timestamp: taken on this ICT day,
+    /// at or after the open.
+    ///
+    /// Checking `asOf` rather than the clock is what covers the awkward window. At 09:05 the board is in the
+    /// opening auction and has no matched price yet, so no new quote arrives; a clock-only test would decide
+    /// the session had started and let the previous day's change reappear for the ten minutes until one does.
+    ///
+    /// Crypto is always current. Binance quotes against a rolling 24-hour window rather than a session, so
+    /// its baseline has no day boundary to fall behind.
+    func isFromCurrentSession(at now: Date) -> Bool {
+        guard market == .vietnam else { return true }
+        return MarketHours.isSameSessionDay(asOf, now)
+            && MarketHours.hasSessionStarted(market, at: asOf)
+    }
+
+    /// This quote as it should read at `now`: unchanged while its own session is the current one, and
+    /// rebased onto its last close once the day has rolled past it.
+    ///
+    /// Without this, a VN row goes on reporting the last session's move — green, +3.48% — from midnight
+    /// until the next board rollover, and all weekend. That figure is not wrong so much as answering
+    /// yesterday's question: nothing has traded yet, so there is nothing up or down about today.
+    ///
+    /// The rebase is not a fiction. HOSE's reference for a session IS the previous session's close, so
+    /// setting `reference` to the last price we have is exactly the number the board will publish itself a
+    /// few hours later — we just aren't waiting for it. `price` is left alone, because the last close is
+    /// still the most recent price that exists, and `asOf` too, so the panel keeps saying which session the
+    /// reading came from.
+    ///
+    /// Ceiling and floor go, though, and that is the one place information is deliberately dropped. They
+    /// are ±7% of the OLD reference, so keeping them beside the new one shows a band that doesn't belong to
+    /// it — and `band` reads them first, which would paint a stock that closed limit-up purple all night
+    /// with a change of zero beside it. Volume stays: it is the last session's real turnover, and `asOf`
+    /// says which session that was.
+    func rebasedForPendingSession(at now: Date) -> Quote {
+        guard !isFromCurrentSession(at: now) else { return self }
+        return Quote(symbol: symbol, market: market, price: price, reference: price,
+                     ceiling: nil, floor: nil, volume: volume, asOf: asOf)
+    }
 }
