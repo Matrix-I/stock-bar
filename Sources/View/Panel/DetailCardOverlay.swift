@@ -1,6 +1,6 @@
-// DetailCardOverlay.swift — draws the hovered row's detail card OVER the panel instead of inside it.
+// DetailCardOverlay.swift — draws the clicked row's detail card OVER the panel instead of inside it.
 //
-// The card used to be a view inside the hovered row's own stack, which made opening it a layout change: the
+// The card used to be a view inside the row's own stack, which made opening it a layout change: the
 // rows below slid down, and on the last row the popover itself grew. Reading a price is aiming at a number,
 // and the card moved the numbers.
 //
@@ -30,7 +30,7 @@ struct DetailAnchor {
 enum DetailAnchorKey: PreferenceKey {
     static let defaultValue: DetailAnchor? = nil
 
-    /// At most one row is hovered, so there is nothing to merge: every other row offers nil and the first
+    /// At most one row is selected, so there is nothing to merge: every other row offers nil and the first
     /// real value stands. `value ?? nextValue()` rather than the other way round so that a value already
     /// collected is never dropped by a later nil.
     static func reduce(value: inout DetailAnchor?, nextValue: () -> DetailAnchor?) {
@@ -39,8 +39,8 @@ enum DetailAnchorKey: PreferenceKey {
 }
 
 extension View {
-    /// Offer this row to the panel as the one to annotate. Attach it to the row's whole hover target,
-    /// padding included, so the card's gap is measured from the same edge the pointer crosses.
+    /// Offer this row to the panel as the one to annotate. Attach it to the row's whole click target,
+    /// padding included, so the card's gap is measured from the edge of what was clicked.
     func detailAnchor(_ entry: WatchedSymbol, when shown: Bool) -> some View {
         anchorPreference(key: DetailAnchorKey.self, value: .bounds) { bounds in
             shown ? DetailAnchor(entry: entry, bounds: bounds) : nil
@@ -64,7 +64,7 @@ struct DetailCardOverlay: View {
     /// first pass measures it at `top`'s unmeasured answer and keeps it invisible — one frame of nothing
     /// rather than one frame of a card in the wrong place.
     ///
-    /// It deliberately survives the card closing. A second hover then places the card correctly on its
+    /// It deliberately survives the card closing. The next click then places the card correctly on its
     /// first pass, because consecutive cards are nearly always the same height.
     @State private var cardHeight: CGFloat = 0
 
@@ -91,9 +91,11 @@ struct DetailCardOverlay: View {
             }
         }
         // Not optional. This overlay covers the entire panel, so with hit testing on, its GeometryReader
-        // would swallow the hover that opens the card in the first place — and the card, sitting over the
-        // rows below its own, would take their hover too and flicker between them. Off, it is what it looks
-        // like: an annotation drawn on top, with the pointer still on the row underneath.
+        // would swallow the click that opens the card in the first place, and every click meant for a row.
+        // Off, it is what it looks like: an annotation drawn on top, with the row underneath still the thing
+        // being clicked. The cost is that a click on the card reaches the row it covers and moves the card
+        // there — which is consistent, if surprising the first time; the alternative is an overlay that eats
+        // clicks, and that failure is silent and total.
         .allowsHitTesting(false)
     }
 

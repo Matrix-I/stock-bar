@@ -5,23 +5,27 @@
 // pinned, so Refresh, the add field and Quit remain reachable however long the list grows.
 
 import SwiftUI
+import AppKit
+import Combine
 
 struct SymbolList: View {
     @ObservedObject var reader: QuoteReader
     @ObservedObject var watchlist: Watchlist
     let editing: Bool
 
-    /// The row the pointer is resting on, if any — see `detailIsShown`.
-    @State private var hovered: String?
+    /// The row whose detail card is open, if any — see `detailIsShown`. Set by clicking a row, and the card
+    /// then stays put until it is dismissed, which is the whole difference from the hover it replaced: the
+    /// card can be read without holding the pointer still on the row it belongs to.
+    @State private var selected: String?
 
-    /// Forces one symbol's card open so Tools/uisnap.sh can render it. Hover is unreachable from a snapshot
-    /// tool, and an unrenderable state is an unverifiable one. Never set for the app itself.
-    private static let forcedHover = ProcessInfo.processInfo.environment["STOCKBAR_UI_HOVER"]?.uppercased()
+    /// Forces one symbol's card open so Tools/uisnap.sh can render it. A click is unreachable from a
+    /// snapshot tool, and an unrenderable state is an unverifiable one. Never set for the app itself.
+    private static let forcedCard = ProcessInfo.processInfo.environment["STOCKBAR_UI_CARD"]?.uppercased()
 
     var body: some View {
-        // spacing 0 with the gap moved into each entry's own padding, so the hit areas the hover is
-        // measured against are CONTIGUOUS. With the gap between them, crossing from one row to the next
-        // passed through 10pt of dead space and the open card blinked shut and back on the way.
+        // spacing 0 with the gap moved into each entry's own padding, so every row's click target reaches
+        // its neighbour's. With the gap between them there was 10pt of dead space between rows where a
+        // click hit nothing at all — and a click that does nothing reads as a broken panel, not as a miss.
         VStack(spacing: 0) {
             ForEach(Array(watchlist.symbols.enumerated()), id: \.element.id) { index, entry in
                 HStack(spacing: Theme.Space.control) {
@@ -39,38 +43,48 @@ struct SymbolList: View {
                     if editing { removeButton(entry) }
                 }
                 .padding(.vertical, Theme.Space.rowGap / 2)
-                // The row is mostly Spacer, and hover is not reported for transparent areas without this.
+                // The row is mostly Spacer, and a click on a transparent area is not reported without this.
                 .contentShape(Rectangle())
-                .onHover { inside in
-                    if inside {
-                        hovered = entry.id
-                    } else if hovered == entry.id {
-                        // Guarded: the pointer entering the next row reports that one's `true` before this
-                        // one's `false`, and clearing unconditionally would then close the card that just
-                        // opened.
-                        hovered = nil
-                    }
-                }
+                .onTapGesture { toggle(entry) }
                 // The card itself is drawn by the panel, not from here — see DetailCardOverlay. This row
-                // only says that it is the one being pointed at, and hands over a rectangle the panel can
+                // only says that it is the one that was clicked, and hands over a rectangle the panel can
                 // resolve into a position.
                 .detailAnchor(entry, when: detailIsShown(entry))
             }
         }
+        // Edit mode suppresses the card (see detailIsShown), so a selection made before it was entered would
+        // reappear on the way out — a card opening by itself, minutes after the click that asked for it.
+        .onChange(of: editing) { _ in selected = nil }
+        // Same reasoning across an open/close of the whole panel: the popover's view tree is built once and
+        // outlives every showing of it, so without this the panel reopens with the card that was on screen
+        // when it was last dismissed. The notification is the only signal the panel gets — NSPopover is
+        // owned by AppDelegate and nothing about its state reaches down here.
+        .onReceive(NotificationCenter.default.publisher(for: NSPopover.didCloseNotification)) { _ in
+            selected = nil
+        }
+    }
+
+    /// Click the row whose card is open to close it, any other row to move the card there.
+    ///
+    /// Toggling rather than only opening matters because the card is the only thing a click on a row does:
+    /// with no way to close it from the same place it was opened, dismissing it would mean closing the whole
+    /// panel.
+    private func toggle(_ entry: WatchedSymbol) {
+        selected = (selected == entry.id) ? nil : entry.id
     }
 
     /// Whether `entry`'s card is open.
     ///
-    /// The card floats over the panel and takes no hover of its own, so "into the card" is not a place the
-    /// pointer can go: moving down from a row lands on the next row, whose card takes over. That is the
-    /// behaviour to want — the card annotates wherever the pointer is — and it is the reason the rows'
-    /// hit areas have to be contiguous.
+    /// The card floats over the panel and takes no clicks of its own (see DetailCardOverlay), so clicking
+    /// where it is drawn reaches the row underneath and moves the card there. That follows from the card
+    /// being an annotation rather than a window, and it is why the rows' click targets have to be
+    /// contiguous: whatever the card covers is still the thing a click is aimed at.
     ///
-    /// Suppressed while editing: a card over the reorder chevrons would cover the control the pointer is on
-    /// its way to, and a list being rearranged is not a list anyone is reading valuation ratios off.
+    /// Suppressed while editing: a card over the reorder chevrons would cover the control being clicked
+    /// towards, and a list being rearranged is not a list anyone is reading valuation ratios off.
     private func detailIsShown(_ entry: WatchedSymbol) -> Bool {
         guard !editing else { return false }
-        return hovered == entry.id || Self.forcedHover == entry.symbol.uppercased()
+        return selected == entry.id || Self.forcedCard == entry.symbol.uppercased()
     }
 
     private func pinButton(_ entry: WatchedSymbol) -> some View {

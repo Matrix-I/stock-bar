@@ -98,7 +98,7 @@ struct Probe {
             }
         }
 
-        // Trailing per-share figures, which back the P/E and P/B in the hover card. Printed with the
+        // Trailing per-share figures, which back the P/E and P/B in the detail card. Printed with the
         // recovered book value and both ratios spelled out, because a ratio that looks wrong on screen is
         // only diagnosable if you can see which of the three inputs it came from — and because the feed's
         // own pe/pb are deliberately NOT what the card shows (see Core/Fundamentals.swift).

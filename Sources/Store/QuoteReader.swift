@@ -35,7 +35,7 @@ final class QuoteReader: ObservableObject {
     /// is reassigned, which `apply` does on every poll whether or not anything was fetched.
     ///
     /// Applying it here rather than at the three call sites is deliberate. The menu bar, the row and the
-    /// hover card would otherwise each have to remember to ask, and the one that forgot would disagree with
+    /// detail card would otherwise each have to remember to ask, and the one that forgot would disagree with
     /// the other two about the same instrument — which is the class of bug `PriceFormat` exists to prevent.
     var quotes: [String: Quote] {
         let now = Date()
@@ -49,7 +49,7 @@ final class QuoteReader: ObservableObject {
     /// Recent closes per `WatchedSymbol.id` for the popover sparklines. Only fetched while the popover
     /// is open, since nothing else draws them.
     @Published private(set) var history: [String: [Double]] = [:]
-    /// Trailing per-share figures per `WatchedSymbol.id`, behind the P/E and P/B in the hover card. Only
+    /// Trailing per-share figures per `WatchedSymbol.id`, behind the P/E and P/B in the detail card. Only
     /// Vietnamese equities have them; everything else stays absent, which the card simply renders fewer
     /// rows for.
     @Published private(set) var fundamentals: [String: Fundamentals] = [:]
@@ -310,7 +310,7 @@ final class QuoteReader: ObservableObject {
     }
 
     /// Fetch trailing per-share figures for the Vietnamese equities, concurrently. Errors are swallowed for
-    /// the same reason as the sparklines: a missing ratio just leaves two rows out of a hover card, and it
+    /// the same reason as the sparklines: a missing ratio just leaves two rows out of a detail card, and it
     /// is not worth a message beside a price that arrived fine.
     ///
     /// Called on every panel refresh even though the figures change once a quarter. FundamentalsSource

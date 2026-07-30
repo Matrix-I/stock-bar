@@ -91,8 +91,8 @@ in a stablecoin quote (`BTCUSDT`, `ETHUSDC`) is filed under Binance whatever the
 sending it to a HOSE backend can only ever fail. An existing watchlist with symbols on the wrong market is
 repaired on load.
 
-**Resting the pointer on a row floats a detail card off it**, at once rather than after AppKit's
-one-to-two-second tooltip delay:
+**Clicking a row floats a detail card off it**, and the card stays until it is dismissed — click the same
+row again to close it, or another row to move it there:
 
 ```
 VNINDEX                                      1,704.68
@@ -107,14 +107,18 @@ BTCUSDT                                     64,310.01
 ```
 
 The card is drawn over the panel, not in it — opening it moves nothing. It used to be laid out under its
-row, and that made pointing at a price a way of pushing every price below it downwards. It goes under the
+row, and that made asking about a price a way of pushing every price below it downwards. It goes under the
 row where there is room and above it where there isn't, which is what the bottom row of the list gets; the
 placement is `Sources/Core/DetailCardLayout.swift`, and the reason a row cannot place it itself is at the top
-of `View/Panel/DetailCardOverlay.swift`.
+of `View/Panel/DetailCardOverlay.swift`. Because it is an annotation drawn on top and takes no clicks of its
+own, a click on the card itself reaches the row underneath and moves the card there.
 
 An index drops the band and the ratios; a crypto pair shows `24h open` instead of `Reference` and gets no
-valuation at all. The card is suppressed in edit mode, where it would cover the reorder chevrons the pointer
-is on its way to.
+valuation at all. The card closes with the panel, so reopening the panel never restores a card nobody asked
+for, and it is suppressed in edit mode, where it would cover the reorder chevrons being clicked towards.
+
+The price is deliberately not selectable text. The row is a click target now, and selectable text inside one
+claims the mouse-down for a drag-selection of its own — on the largest and most obvious thing to aim at.
 
 **P/E and P/B are computed from the price on screen**, not taken ready-made from the feed. SSI reports a
 P/E of 14.23 for VCB on an EPS of 4,210 — which implies a price of 59,900, while the board that same minute
@@ -218,7 +222,7 @@ Sources/
     MarketHours.swift          session windows for HOSE, New York and Tokyo; the ICT day boundary
     PriceFormat.swift          every number → the string on screen
     Fundamentals.swift         EPS and book value → P/E and P/B at the live price
-    QuoteDetail.swift          the hover card's label/value rows, per kind of instrument
+    QuoteDetail.swift          the detail card's label/value rows, per kind of instrument
     DetailCardLayout.swift     where that card floats: under the row, above it, or over the chrome
     WatchlistRepair.swift      refile a symbol stored under a market that cannot serve it
     MenuBarLabel.swift         what the menu bar says, as an Equatable value
@@ -237,14 +241,14 @@ Sources/
   View/
     Design/Theme.swift         the design tokens: scale, spacing, sizes, type
     Design/BandStyle.swift     band → colour, in both SwiftUI and AppKit spellings
-    Design/CardStyle.swift     the hover card's palette — the app's own background colour
+    Design/CardStyle.swift     the detail card's palette — the app's own background colour
     Design/BrandMark.swift     the mark, as geometry: the app icon and the empty menu bar draw it
     Design/MeasuredHeight.swift  .measuringHeight(into:) — how the panel sizes its scroll area
     Design/AppKitBridges.swift   which screen the popover is on; thin overlay scrollers
     MenuBar/MenuBarGlyph.swift   bakes the coloured status-bar NSImage
     MenuBar/MenuBarStyle.swift   the glyph's own (unscaled) tokens
     Panel/TickerPopover.swift    the panel's layout and the scroll decision
-    Panel/DetailCardOverlay.swift  draws the hovered row's card over the panel, not in it
+    Panel/DetailCardOverlay.swift  draws the clicked row's card over the panel, not in it
     Panel/                       PanelHeader, SymbolList, QuoteRow, Sparkline,
                                  QuoteDetailCard, AddSymbolField, SettingsFooter
   App/StockBarApp.swift        NSStatusItem + NSPopover, entry point
@@ -377,14 +381,14 @@ To look at the panel itself:
 ./Tools/uisnap.sh /tmp/panel.png          # dark
 ./Tools/uisnap.sh /tmp/panel-light.png light
 STOCKBAR_UI_EDIT=1 ./Tools/uisnap.sh /tmp/edit.png          # the edit-mode row layout
-STOCKBAR_UI_HOVER=VCB ./Tools/uisnap.sh /tmp/hover.png      # the detail card, opened
+STOCKBAR_UI_CARD=VCB ./Tools/uisnap.sh /tmp/card.png        # the detail card, opened
 STOCKBAR_UI_WATCHLIST=VCB,MBB,HPG,FPT ./Tools/uisnap.sh /tmp/long.png   # append real tickers
 ```
 
 `uisnap` hosts the real `TickerPopover` in a window and caches its display into a PNG. It exists because
 `screencapture` of the actual panel fails here without Screen Recording permission, which would leave
 every layout change unverifiable from a terminal. The environment variables reach states the tool can't
-otherwise click or point its way into: `STOCKBAR_UI_EDIT` turns on edit mode, `STOCKBAR_UI_HOVER=VCB` opens
+otherwise click its way into: `STOCKBAR_UI_EDIT` turns on edit mode, `STOCKBAR_UI_CARD=VCB` opens
 one row's detail card, and `STOCKBAR_UI_WATCHLIST` appends symbols so a list long enough to scroll can be
 rendered — the shipped default is four rows, which never reaches the cap. None is ever set for the app
 itself.

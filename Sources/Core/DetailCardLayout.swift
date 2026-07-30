@@ -31,11 +31,11 @@ enum DetailCardLayout {
     ///      enough to be worth scrolling.
     ///   2. Inside `panel`, which means over the footer. The list can simply be shallower than the card is
     ///      tall — three watched symbols and a Vietnamese equity's seven rows — and then covering the
-    ///      settings block for as long as the pointer rests is better than covering the price being read.
+    ///      settings block for as long as the card is open is better than covering the price being read.
     ///   3. Clamped into `panel`. Needs a window barely taller than the card; keeps it on screen.
     ///
     /// - Parameters:
-    ///   - rowTop: the hovered row's top edge, its padding included — the card hangs off the hover target
+    ///   - rowTop: the selected row's top edge, its padding included — the card hangs off the click target
     ///     rather than off the text, so the gap looks the same above and below.
     ///   - rowBottom: that row's bottom edge, likewise.
     ///   - cardHeight: the card's measured height. Zero on the very first pass, before it has been laid
@@ -56,7 +56,7 @@ enum DetailCardLayout {
     /// Below the row if the card fits there, above it if it fits there, otherwise nowhere in this span.
     ///
     /// Below first because that is where the eye already is, having just read the row. The flip is what the
-    /// bottom row of the list gets — and the bottom row is one of the most hovered in any list, being the
+    /// bottom row of the list gets — and the bottom row is one of the most clicked in any list, being the
     /// one someone has just added.
     private static func fit(rowTop: CGFloat, rowBottom: CGFloat, cardHeight: CGFloat,
                             in span: Span, gap: CGFloat, margin: CGFloat) -> CGFloat? {

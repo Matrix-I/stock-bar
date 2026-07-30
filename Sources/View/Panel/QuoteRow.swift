@@ -49,11 +49,15 @@ struct QuoteRow: View {
     private func priceColumn(_ quote: Quote) -> some View {
         let tint = BandStyle.color(quote.band, market: quote.market)
         return VStack(alignment: .trailing, spacing: Theme.Space.tight) {
+            // Deliberately NOT .textSelection(.enabled), which this used to be. The whole row is a click
+            // target now — clicking it opens the detail card — and selectable text inside a click target
+            // claims the mouse-down for a drag-selection of its own. The price is the largest thing in the
+            // row and the most natural place to aim at, so leaving it selectable would have made the app's
+            // one gesture fail exactly where it is most likely to be tried.
             Text(PriceFormat.price(quote.price, market: quote.market, isIndex: entry.isIndex))
                 .font(Theme.Fonts.price)
                 .monospacedDigit()
                 .foregroundStyle(tint)
-                .textSelection(.enabled)
             if let pct = quote.changePercent, let chg = quote.change {
                 Text("\(quote.band.arrow) \(PriceFormat.change(chg, market: quote.market, isIndex: entry.isIndex)) (\(PriceFormat.percent(pct)))")
                     .font(Theme.Fonts.change)

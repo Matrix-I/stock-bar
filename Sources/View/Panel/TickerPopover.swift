@@ -57,7 +57,7 @@ struct TickerPopover: View {
         // ended exactly where the content did, and the scroller was drawn on top of the change figures.
         .padding(.vertical, Theme.Space.panelV)
         .frame(width: Theme.Size.panelWidth)
-        // The hover card is drawn here, over the finished panel, rather than by the row it belongs to: it
+        // The detail card is drawn here, over the finished panel, rather than by the row it belongs to: it
         // has to be able to overlap the header, the footer and the rows either side of its own, and a row
         // inside the ScrollView can draw none of that. Attached after the frame and the padding so the
         // height it is placed against is the panel's real one. See DetailCardOverlay.

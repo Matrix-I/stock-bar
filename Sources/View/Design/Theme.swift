@@ -82,7 +82,7 @@ enum Theme {
         /// pushing the switch off the panel.
         static let switchGap = Theme.pt(12)
 
-        /// Between a row and the card floating off it on hover — above or below, so it is read as the gap
+        /// Between a row and the card floating off it when clicked — above or below, so it is read as the gap
         /// on whichever side the card ended up.
         static let detailGap = Theme.pt(4)
         /// How close the floating card may come to the panel's own edge before it is moved. The popover has
@@ -146,7 +146,7 @@ enum Theme {
         static let settingsLabel = Theme.settingsFont(11)
         static let settingsStatus = Theme.settingsFont(10)
 
-        /// The hover card. Smaller than the row it belongs to, so it reads as an annotation of the row
+        /// The detail card. Smaller than the row it belongs to, so it reads as an annotation of the row
         /// rather than as more rows.
         static let detailLabel = Theme.font(9)
         static let detailValue = Theme.font(9, .medium)
@@ -165,7 +165,7 @@ enum Theme {
         /// A reorder chevron at the end of the list: disabled, but still occupying its place so the rows
         /// stay aligned.
         static let disabledIcon: Double = 0.3
-        // The floating hover card's own colours are NOT here: it is the one surface in the panel that does
+        // The floating detail card's own colours are NOT here: it is the one surface in the panel that does
         // not follow the appearance, so its fill, text, edge and shadow are a set that has to be read
         // together. They live in Design/CardStyle.swift.
     }

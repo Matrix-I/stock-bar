@@ -16,7 +16,7 @@ struct QuoteDetailCard: View {
     var body: some View {
         Group {
             if rows.isEmpty {
-                // A pinned symbol whose fetch has never succeeded. Saying so is the point of hovering it.
+                // A pinned symbol whose fetch has never succeeded. Saying so is the point of clicking it.
                 Text("No quote yet")
                     .font(Theme.Fonts.detailLabel)
                     .foregroundStyle(CardStyle.label)

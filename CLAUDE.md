@@ -81,11 +81,21 @@ the overlay scroller was drawn on top of the change figures.
 `MenuBarStyle` is deliberately NOT scaled by `Theme.scale` — the menu bar's height is fixed at 22pt by the
 system.
 
-The hover card is drawn by the **panel**, over the finished layout, and not by the row it describes — see
+The detail card is drawn by the **panel**, over the finished layout, and not by the row it describes — see
 `View/Panel/DetailCardOverlay.swift` for the anchor-preference seam and `Core/DetailCardLayout.swift` for
 where it lands. Moving it back into the row's own stack is the regression to watch for: it compiles, it looks
-right in a screenshot, and it turns pointing at a price into a way of pushing every price below it down the
-panel. `uisnap` reports the panel height, and the hover states must report the same one as `plain`.
+right in a screenshot, and it turns asking about a price into a way of pushing every price below it down the
+panel. `uisnap` reports the panel height, and the card states must report the same one as `plain`.
+
+**A row is a click target, and the card it opens is the only thing a click on a row does.** It was hover
+once; clicking means the card can be read without holding the pointer still, and it means the card has to be
+closable from the same place it was opened (click the row again) and has to be cleared when the panel closes
+— the popover's view tree is built once and outlives every showing of it, so a stale selection reopens as a
+card nobody asked for. Two things follow that are easy to undo by accident. The overlay keeps
+`allowsHitTesting(false)`: with it on, the GeometryReader covering the panel swallows every click meant for a
+row, which is a total and silent failure. And nothing inside a row may be selectable text — selectable text
+claims the mouse-down for a drag-selection of its own, so `.textSelection(.enabled)` on the price (which is
+where it used to be) makes the gesture fail on the biggest target in the row.
 
 ## Conventions
 
@@ -143,7 +153,7 @@ panel. `uisnap` reports the panel height, and the hover states must report the s
   ./Tools/uisnap.sh /tmp/plain.png dark
   ./Tools/uisnap.sh /tmp/light.png light
   STOCKBAR_UI_EDIT=1 ./Tools/uisnap.sh /tmp/edit.png dark
-  STOCKBAR_UI_HOVER=VCB ./Tools/uisnap.sh /tmp/hover.png dark
+  STOCKBAR_UI_CARD=VCB ./Tools/uisnap.sh /tmp/card.png dark
   STOCKBAR_UI_WATCHLIST=VCB,MBB,FPT,HPG,SSI,VIC,VHM,MSN,GAS,CTG,BID,TCB,ACB,STB ./Tools/uisnap.sh /tmp/long.png dark
   ```
   The long one matters: with 18 rows the list exceeds the cap and the *scrolling* branch is what gets

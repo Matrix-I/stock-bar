@@ -1,4 +1,4 @@
-// CardStyle.swift — the hover card's palette.
+// CardStyle.swift — the detail card's palette.
 //
 // One file rather than four tokens in Theme because these values only work as a set: the fill is the app's
 // own background colour, which means NOTHING about the card is distinguished by its fill, and the edge and
