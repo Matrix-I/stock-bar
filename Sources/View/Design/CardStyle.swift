@@ -1,30 +1,32 @@
-// CardStyle.swift — the hover card's palette, and the one place in the panel that does NOT follow the
-// system appearance.
+// CardStyle.swift — the hover card's palette.
 //
-// Everything else here is appearance-aware on purpose, so this needs its reason stated. The card is a light
-// surface on both themes, deliberately: it is a thing lying ON the panel, and what makes that read is
-// contrast against the panel rather than agreement with it. Built from `controlBackgroundColor` it inverted
-// with the appearance — which is exactly wrong, because in dark mode that made it the panel's own colour and
-// the card became a slightly-off rectangle rather than a card. In light mode nothing changes; the card
-// already looked like this, and that is the look being kept.
+// One file rather than four tokens in Theme because these values only work as a set: the fill is the app's
+// own background colour, which means NOTHING about the card is distinguished by its fill, and the edge and
+// the shadow are carrying that job alone. Change one and the card either disappears into the list or starts
+// shouting; they have to be read together.
 //
-// The values are literal rather than semantic for the same reason: a semantic colour is a promise to follow
-// the appearance, and this file is the one that does not. They are only used together, as a set — the
-// surface with its own two text weights, so contrast is decided here rather than at the call site.
+// It has been both other things and both were wrong, which is worth recording so it isn't re-litigated. A
+// fill of `controlBackgroundColor` is a shade darker than the popover's own background in dark mode — close
+// enough that the card read as a slightly-off rectangle rather than as a card. A light fill on both themes
+// fixed that by force and cost more: a bright slab most of the panel's width, belonging to nothing around
+// it. The card is part of this app, so it is the app's colour, and the hairline is what says where it ends.
 
 import SwiftUI
 
 enum CardStyle {
-    /// Not pure white: a hair of grey keeps the values' black from vibrating against it, and separates the
-    /// card from the white it sits on in light mode.
-    static let surface = Color(white: 0.97)
+    /// The window background, one step lighter than the popover's own in dark mode and the same family in
+    /// light. Opaque either way, which it has to be — the card covers rows, and a price showing through a
+    /// price is the one thing this panel must never do.
+    static let surface = Color(nsColor: .windowBackgroundColor)
 
-    /// The label column reads as the quieter half of each pair.
-    static let label = Color.black.opacity(0.55)
-    static let value = Color.black.opacity(0.88)
+    /// Follows the appearance, like the rows the card annotates: the labels are the quieter half of each
+    /// pair, and the values carry the same weight as a price in the list.
+    static let label = Color.secondary
+    static let value = Color.primary
 
-    /// The edge, and the blur under it. Both are what stop a light rectangle on a dark panel from looking
-    /// like a hole punched through to something behind.
-    static let border = Color.black.opacity(0.16)
-    static let shadow = Color.black.opacity(0.35)
+    /// Deliberately not a whisper. With the fill matching the app, this line is the entire difference
+    /// between a card and a gap, so it is drawn at a strength that survives being on a dark panel — where a
+    /// black shadow, which is most of what lifts a card in light mode, contributes almost nothing.
+    static let border = Color.primary.opacity(0.3)
+    static let shadow = Color.black.opacity(0.4)
 }

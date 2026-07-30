@@ -40,7 +40,8 @@ struct QuoteDetailCard: View {
     /// inside an already-vibrant popover a material blurs the desktop behind the window rather than the rows
     /// behind the card, which is the wrong backdrop and no help at all.
     ///
-    /// Light on both appearances — see CardStyle for why that is the point rather than an oversight.
+    /// The fill is the app's own background colour, so the hairline and the shadow are what make this a card
+    /// at all rather than a gap in the list — see CardStyle.
     private var backing: some View {
         RoundedRectangle(cornerRadius: Theme.Size.cardRadius, style: .continuous)
             .fill(CardStyle.surface)
@@ -75,8 +76,6 @@ struct QuoteDetailCard: View {
                     Text(row.value)
                         .font(Theme.Fonts.detailValue)
                         .monospacedDigit()
-                        // Spelled out rather than left to `primary`, which would be white on this surface in
-                        // dark mode — an invisible card that still measures and places correctly.
                         .foregroundStyle(CardStyle.value)
                 }
             }
