@@ -10,6 +10,9 @@
 // the neutral parts (the ticker, the separator) are drawn in a colour taken from `label.isDark` — which is
 // part of the label's value precisely so a theme switch produces a different label and a rebuilt image.
 //
+// The empty state is the exception and is drawn as a real template: with nothing pinned there are no band
+// colours to keep, so there is nothing left to pay for.
+//
 // Sizes, weights and alphas are in MenuBarStyle; what to say is in Core/MenuBarLabel.swift. This file
 // only draws.
 
@@ -19,8 +22,8 @@ enum MenuBarGlyph {
 
     @MainActor
     static func image(for label: MenuBarLabel) -> NSImage {
+        if label.hasNothingPinned { return mark() }
         let neutral = MenuBarStyle.neutral(isDark: label.isDark)
-        guard !label.entries.isEmpty else { return placeholder(neutral: neutral) }
 
         let line = attributedLine(label.entries, neutral: neutral)
 
@@ -71,21 +74,32 @@ enum MenuBarGlyph {
         return line
     }
 
-    /// Shown before the first fetch lands, and whenever every pinned symbol is missing a quote. A visible
-    /// placeholder beats an empty item: a zero-width status item is indistinguishable from a crash.
-    private static func placeholder(neutral: NSColor) -> NSImage {
-        let text = MenuBarStyle.placeholder as NSString
-        let attrs: [NSAttributedString.Key: Any] = [
-            .font: MenuBarStyle.priceFont,
-            .foregroundColor: neutral.withAlphaComponent(MenuBarStyle.placeholderAlpha),
-        ]
-        let size = text.size(withAttributes: attrs)
-        let h = MenuBarStyle.height
-        let img = NSImage(size: NSSize(width: ceil(size.width), height: h), flipped: false) { _ in
-            text.draw(at: NSPoint(x: 0, y: (h - ceil(size.height)) / 2 + 0.5), withAttributes: attrs)
+    /// Shown when nothing is pinned. Something visible is required either way — a zero-width status item
+    /// is indistinguishable from a crash — and this used to be "— —", which said nothing about whose item
+    /// it was. The state is fixed by pinning a symbol, and the user can only think to do that if they
+    /// recognise the item as StockBar's, so the app's own mark is the thing to draw.
+    ///
+    /// The one case in this file that IS a template image: with no prices there are no band colours to
+    /// preserve, so handing the shape to the system buys back everything opting out of template rendering
+    /// costs — it tints for the appearance on its own, and it inverts while the item is pressed, like the
+    /// system's own glyphs beside it.
+    @MainActor
+    private static func mark() -> NSImage {
+        let box = MenuBarStyle.markBox
+        let width = BrandMark.lineWidth(for: box)
+        let img = NSImage(size: NSSize(width: box, height: MenuBarStyle.height), flipped: false) { rect in
+            guard let ctx = NSGraphicsContext.current?.cgContext else { return false }
+            let square = CGRect(x: rect.minX, y: rect.midY - box / 2, width: box, height: box)
+            ctx.setLineWidth(width)
+            ctx.setLineCap(.round)
+            ctx.setLineJoin(.round)
+            // Any opaque colour would do: a template image keeps only the alpha channel.
+            ctx.setStrokeColor(.black)
+            ctx.addPath(BrandMark.line(in: square, lineWidth: width))
+            ctx.strokePath()
             return true
         }
-        img.isTemplate = false
+        img.isTemplate = true
         return img
     }
 }

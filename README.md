@@ -45,6 +45,12 @@ The menu bar shows the symbols you pin, e.g. `VNI 1,704.68 +1.43%  BTC 64,013.97
 opens a panel with every watched symbol, its intraday sparkline, the daily band, and the controls for
 editing the list.
 
+With **nothing pinned** it shows the app's mark instead — the same rising line as the app icon, drawn as a
+template so it tints and inverts like the system's own glyphs. It used to be `— —`, which is the state
+StockBar is in but says nothing about which app you would click to change it. A symbol that *is* pinned but
+has no quote yet still shows as text with a dash: an icon there would hide a symbol you asked for and make
+a broken feed look like an idle app.
+
 The pencil turns on edit mode, which gives each row pin / move up / move down / remove. The sparkline
 hides while editing to make room — four controls plus a chart and a price don't fit on one row without
 truncating the change. Pinned symbols are drawn in watchlist order and only the first four get a slot,
@@ -197,7 +203,8 @@ Sources/
   View/
     Design/Theme.swift         the design tokens: scale, spacing, sizes, type
     Design/BandStyle.swift     band → colour, in both SwiftUI and AppKit spellings
-    Design/CardStyle.swift     the hover card's palette — light on both themes, on purpose
+    Design/CardStyle.swift     the hover card's palette — the app's own background colour
+    Design/BrandMark.swift     the mark, as geometry: the app icon and the empty menu bar draw it
     Design/MeasuredHeight.swift  .measuringHeight(into:) — how the panel sizes its scroll area
     Design/AppKitBridges.swift   which screen the popover is on; thin overlay scrollers
     MenuBar/MenuBarGlyph.swift   bakes the coloured status-bar NSImage
@@ -207,9 +214,10 @@ Sources/
     Panel/                       PanelHeader, SymbolList, QuoteRow, Sparkline,
                                  QuoteDetailCard, AddSymbolField, SettingsFooter
   App/StockBarApp.swift        NSStatusItem + NSPopover, entry point
-Tests/StockBarCoreTests/       76 tests over Sources/Core
+Tests/StockBarCoreTests/       77 tests over Sources/Core
 Tools/probe.sh                 exercises the data layer from the command line
 Tools/uisnap.sh                renders the popover to a PNG (no Screen Recording permission needed)
+Tools/makeicon.sh              regenerates AppIcon.icns from BrandMark (the .icns is committed)
 ```
 
 Two structural rules are worth knowing before adding anything:

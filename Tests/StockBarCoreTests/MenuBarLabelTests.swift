@@ -101,6 +101,15 @@ struct MenuBarLabelTests {
     func accessibility() {
         let quotes = Dictionary(uniqueKeysWithValues: [quote(btc, price: 64_134, reference: 63_000)])
         #expect(label(pinned: [btc], quotes: quotes).accessibilityDescription == "BTC 64,134.00, +1.80%")
-        #expect(label(pinned: [], quotes: [:]).accessibilityDescription == "StockBar, no quotes yet")
+        #expect(label(pinned: [], quotes: [:]).accessibilityDescription == "StockBar, nothing pinned")
+    }
+
+    @Test("Nothing pinned is the mark; a pinned symbol without a quote is still text")
+    func nothingPinnedIsNotTheSameAsNoData() {
+        // The menu bar draws the app's mark instead of a label when this is true, so the failure mode is a
+        // symbol the user pinned vanishing behind an icon: the app would look idle rather than broken, and
+        // the one row that says "pinned, no data" would be the row that got hidden.
+        #expect(label(pinned: [], quotes: [:]).hasNothingPinned)
+        #expect(label(pinned: [btc], quotes: [:]).hasNothingPinned == false)
     }
 }

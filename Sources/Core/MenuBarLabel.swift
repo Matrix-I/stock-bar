@@ -63,9 +63,19 @@ struct MenuBarLabel: Equatable, Sendable {
         return MenuBarLabel(entries: entries, isDark: isDark)
     }
 
+    /// Nothing is pinned — the state the menu bar answers with the app's mark instead of text.
+    ///
+    /// Not the same as "no data", and the difference is load-bearing: a pinned symbol whose fetch has
+    /// never succeeded still gets an entry (see `make`), so an empty `entries` can only mean an empty
+    /// watchlist. If this ever became true for a failed fetch as well, a symbol the user pinned would
+    /// disappear behind the mark and the app would look idle rather than broken.
+    var hasNothingPinned: Bool { entries.isEmpty }
+
     /// What VoiceOver reads for the status item.
     var accessibilityDescription: String {
-        guard !entries.isEmpty else { return "StockBar, no quotes yet" }
+        // "No quotes yet" was wrong about its own state — with nothing pinned there is nothing to quote,
+        // and with something pinned there is always an entry to read out, dash or not.
+        guard !hasNothingPinned else { return "StockBar, nothing pinned" }
         return entries
             .map { "\($0.label) \($0.price)\($0.change.map { c in ", \(c)" } ?? "")" }
             .joined(separator: "; ")

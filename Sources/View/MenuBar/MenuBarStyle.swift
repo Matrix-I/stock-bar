@@ -22,10 +22,13 @@ enum MenuBarStyle {
     static let staleAlpha: CGFloat = 0.45
     /// The ticker is quieter than the price it labels.
     static let tickerAlpha: CGFloat = 0.75
-    static let placeholderAlpha: CGFloat = 0.5
 
     static let separator = "  "
-    static let placeholder = "— —"
+
+    /// The box BrandMark is drawn in when nothing is pinned. Square, like the app icon, and 2pt shy of
+    /// the band so the mark doesn't touch the menu bar's edges — a glyph that does reads as clipped.
+    /// No alpha token to go with it: the mark is a template image and the system decides its colour.
+    static let markBox: CGFloat = 14
 
     /// The neutral text colour. Read from the appearance rather than left to the system because a
     /// coloured image cannot be a template, so nothing auto-tints it — see MenuBarGlyph.

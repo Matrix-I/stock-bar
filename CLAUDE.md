@@ -8,6 +8,7 @@
 ./run_tests.sh              # unit tests — use this, NOT a bare `swift test`
 ./Tools/probe.sh            # hit the real upstreams and print what came back
 ./Tools/uisnap.sh /tmp/p.png  # render the real popover to a PNG
+./Tools/makeicon.sh         # regenerate AppIcon.icns from BrandMark
 ```
 
 There is no Xcode project and no SwiftPM app target. `build_app.sh` runs `swiftc -O` over every `.swift`
@@ -57,10 +58,16 @@ index losing its quote after 23:00. Each printed something believable.
 ## The design system
 
 Everything in the panel is sized through `Theme` (`Sources/View/Design/Theme.swift`) and coloured through
-`BandStyle` — plus `CardStyle` for the hover card, which is the one surface that deliberately does NOT follow
-the system appearance: it stays light on both themes, because a card is a thing lying on the panel and what
-says so is contrast with the panel rather than agreement with it. **No raw point values and no
-`.system(size:)` in `Sources/View/Panel`.**
+`BandStyle` — plus `CardStyle` for the hover card, whose fill is the app's own `windowBackgroundColor`,
+which means its hairline and shadow are the entire difference between a card and a gap in the list. Its
+header records the two palettes that were tried and rejected; read it before changing one value of the
+four. **No raw point values and no `.system(size:)` in `Sources/View/Panel`.**
+
+`Design/BrandMark.swift` is the app's mark as a path, and it has two consumers at wildly different sizes:
+`Tools/makeicon.sh` compiles it to render `AppIcon.icns`, and `MenuBarGlyph` strokes it at 14pt when
+nothing is pinned. It must therefore stay free of `Theme`, of SwiftUI and of the panel's types — the icon
+tool links it as a two-file build. Exporting a PNG of the mark and drawing that instead is the regression
+to watch for: it costs the small size its crispness and gives the two consumers separate artwork to drift.
 
 The panel renders at `Theme.scale` (1.5×) and the settings block at a further `Theme.settingsScale` (0.8×).
 Because widths, padding and type all scale together, a literal at a call site is one element that quietly
