@@ -197,6 +197,7 @@ Sources/
   View/
     Design/Theme.swift         the design tokens: scale, spacing, sizes, type
     Design/BandStyle.swift     band → colour, in both SwiftUI and AppKit spellings
+    Design/CardStyle.swift     the hover card's palette — light on both themes, on purpose
     Design/MeasuredHeight.swift  .measuringHeight(into:) — how the panel sizes its scroll area
     Design/AppKitBridges.swift   which screen the popover is on; thin overlay scrollers
     MenuBar/MenuBarGlyph.swift   bakes the coloured status-bar NSImage

@@ -165,15 +165,9 @@ enum Theme {
         /// A reorder chevron at the end of the list: disabled, but still occupying its place so the rows
         /// stay aligned.
         static let disabledIcon: Double = 0.3
-        /// The floating hover card: a white highlight over its opaque fill, a hairline, and the blur beneath
-        /// it. The highlight is what makes the card lighter than the panel — which is what "raised" means,
-        /// the light in every macOS panel coming from above. White rather than `primary` so one number does
-        /// both appearances: it lifts the card off a near-black panel in dark mode, and in light mode it is
-        /// white over an already-white fill, which changes nothing and needs to, the card being lighter than
-        /// the grey panel already.
-        static let cardLift: Double = 0.07
-        static let cardBorder: Double = 0.14
-        static let cardShadow: Double = 0.28
+        // The floating hover card's own colours are NOT here: it is the one surface in the panel that does
+        // not follow the appearance, so its fill, text, edge and shadow are a set that has to be read
+        // together. They live in Design/CardStyle.swift.
     }
 
     // MARK: - Sparkline

@@ -57,7 +57,10 @@ index losing its quote after 23:00. Each printed something believable.
 ## The design system
 
 Everything in the panel is sized through `Theme` (`Sources/View/Design/Theme.swift`) and coloured through
-`BandStyle`. **No raw point values and no `.system(size:)` in `Sources/View/Panel`.**
+`BandStyle` — plus `CardStyle` for the hover card, which is the one surface that deliberately does NOT follow
+the system appearance: it stays light on both themes, because a card is a thing lying on the panel and what
+says so is contrast with the panel rather than agreement with it. **No raw point values and no
+`.system(size:)` in `Sources/View/Panel`.**
 
 The panel renders at `Theme.scale` (1.5×) and the settings block at a further `Theme.settingsScale` (0.8×).
 Because widths, padding and type all scale together, a literal at a call site is one element that quietly

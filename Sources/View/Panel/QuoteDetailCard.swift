@@ -19,7 +19,7 @@ struct QuoteDetailCard: View {
                 // A pinned symbol whose fetch has never succeeded. Saying so is the point of hovering it.
                 Text("No quote yet")
                     .font(Theme.Fonts.detailLabel)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(CardStyle.label)
             } else {
                 HStack(alignment: .top, spacing: Theme.Space.detailColumns) {
                     column(left)
@@ -35,27 +35,20 @@ struct QuoteDetailCard: View {
     /// The card floats over the rows below it, so its backing has to do two things the old in-flow wash
     /// didn't: hide what it covers, and look like it is on top.
     ///
-    /// Opaque, because at 7% of the panel's own colour the prices underneath read straight through it — and
-    /// two numbers in the same place is the one thing a price panel must never do. `controlBackgroundColor`
-    /// rather than a `Material`: a material inside an already-vibrant popover blurs the desktop behind the
-    /// window, not the rows behind the card, which is the wrong backdrop and no help at all.
+    /// Opaque, because at 7% of the panel's own colour the prices underneath read straight through it, and
+    /// two numbers in the same place is the one thing a price panel must never do. Not a `Material` either:
+    /// inside an already-vibrant popover a material blurs the desktop behind the window rather than the rows
+    /// behind the card, which is the wrong backdrop and no help at all.
     ///
-    /// The highlight over the fill is there because `controlBackgroundColor` and the popover's own background
-    /// are nearly the same colour in dark mode, and a card the colour of the panel reads as a hole cut in the
-    /// list rather than as something on top of it. The hairline and the shadow do the rest.
+    /// Light on both appearances — see CardStyle for why that is the point rather than an oversight.
     private var backing: some View {
         RoundedRectangle(cornerRadius: Theme.Size.cardRadius, style: .continuous)
-            .fill(Color(nsColor: .controlBackgroundColor))
+            .fill(CardStyle.surface)
             .overlay(
                 RoundedRectangle(cornerRadius: Theme.Size.cardRadius, style: .continuous)
-                    .fill(Color.white.opacity(Theme.Opacity.cardLift))
+                    .strokeBorder(CardStyle.border, lineWidth: Theme.Size.cardBorder)
             )
-            .overlay(
-                RoundedRectangle(cornerRadius: Theme.Size.cardRadius, style: .continuous)
-                    .strokeBorder(Color.primary.opacity(Theme.Opacity.cardBorder),
-                                  lineWidth: Theme.Size.cardBorder)
-            )
-            .shadow(color: .black.opacity(Theme.Opacity.cardShadow),
+            .shadow(color: CardStyle.shadow,
                     radius: Theme.Size.cardShadow,
                     y: Theme.Space.cardShadowY)
     }
@@ -77,11 +70,14 @@ struct QuoteDetailCard: View {
                 HStack(spacing: Theme.Space.detailLabel) {
                     Text(row.label)
                         .font(Theme.Fonts.detailLabel)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(CardStyle.label)
                     Spacer(minLength: Theme.Space.detailLabel)
                     Text(row.value)
                         .font(Theme.Fonts.detailValue)
                         .monospacedDigit()
+                        // Spelled out rather than left to `primary`, which would be white on this surface in
+                        // dark mode — an invisible card that still measures and places correctly.
+                        .foregroundStyle(CardStyle.value)
                 }
             }
         }
