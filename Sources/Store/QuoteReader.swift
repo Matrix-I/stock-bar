@@ -98,9 +98,16 @@ final class QuoteReader: ObservableObject {
         }
 
         // Editing the watchlist should show the new row immediately, not at the next tick.
+        //
+        // The list has to be taken from the publisher and passed in. `@Published` publishes from `willSet`,
+        // so inside this closure `watchlist.symbols` is still the list from BEFORE the edit — a refresh
+        // that read the property would build its plan without the symbol just added and fetch nothing for
+        // it, leaving the new row on a dash until the next tick or a manual Refresh. It looked intermittent
+        // because it wasn't always reached: an add during an in-flight fetch is deferred by `refreshQueued`
+        // and runs later, by which point the property has caught up and the row fills in correctly.
         watchlistChanges = watchlist.$symbols
             .dropFirst()
-            .sink { [weak self] _ in self?.refresh() }
+            .sink { [weak self] edited in self?.refresh(using: edited) }
 
         refresh()
         applyCadence()
@@ -186,6 +193,16 @@ final class QuoteReader: ObservableObject {
     }
 
     func refresh() {
+        refresh(using: watchlist.symbols)
+    }
+
+    /// Fetch for exactly `symbols`.
+    ///
+    /// Separate from `refresh()` for one caller — the watchlist subscription, which is handed the edited
+    /// list because the property it would otherwise read has not been updated yet. Kept as its own method
+    /// rather than a defaulted parameter because `refresh` is passed around as a plain `() -> Void` (the
+    /// panel's Refresh button), and a defaulted parameter cannot be referenced that way.
+    private func refresh(using symbols: [WatchedSymbol]) {
         guard !inFlight else {
             refreshQueued = true
             return
@@ -193,7 +210,6 @@ final class QuoteReader: ObservableObject {
         inFlight = true
         isFetching = true
 
-        let symbols = watchlist.symbols
         let wantHistory = panelOpen
         // Which venues are worth calling this tick, and what to ask each for. Built here, on the main actor,
         // rather than inside the Task: `shouldFetch` reads `lastGood`, which is main-actor state, and

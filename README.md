@@ -89,7 +89,9 @@ a dash forever, indistinguishable from a feed that was down. The add field now a
 committing the row, and says which of the two happened. The market picker is only a hint: a ticker ending
 in a stablecoin quote (`BTCUSDT`, `ETHUSDC`) is filed under Binance whatever the picker says, because
 sending it to a HOSE backend can only ever fail. An existing watchlist with symbols on the wrong market is
-repaired on load.
+repaired on load. The row it adds is fetched immediately rather than at the next tick — and the list the
+fetch is planned from comes from the change notification itself, because `@Published` publishes from
+`willSet` and reading the property back at that moment still returns the list from before the edit.
 
 **An older copy of the app cannot delete a newer one's watchlist.** The list is one JSON blob in
 `UserDefaults`, and it used to be decoded in one go: a single row carrying a market the running build had

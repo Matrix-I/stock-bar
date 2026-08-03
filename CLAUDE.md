@@ -58,7 +58,7 @@ index losing its quote after 23:00. Each printed something believable.
 ## The design system
 
 Everything in the panel is sized through `Theme` (`Sources/View/Design/Theme.swift`) and coloured through
-`BandStyle` — plus `CardStyle` for the hover card, whose fill is the app's own `windowBackgroundColor`,
+`BandStyle` — plus `CardStyle` for the detail card, whose fill is the app's own `windowBackgroundColor`,
 which means its hairline and shadow are the entire difference between a card and a gap in the list. Its
 header records the two palettes that were tried and rejected; read it before changing one value of the
 four. **No raw point values and no `.system(size:)` in `Sources/View/Panel`.**
@@ -139,6 +139,13 @@ where it used to be) makes the gesture fail on the biggest target in the row.
   trips, and it silently drops everything a later version added. Note the limit of the fix, too: it protects
   against the *next* downgrade, never against a build already installed, so an old copy still has to be
   replaced rather than reasoned with.
+- **`@Published` publishes from `willSet`.** Inside a `sink` on `watchlist.$symbols`, reading
+  `watchlist.symbols` gives the list from BEFORE the edit — which is why `QuoteReader` takes the edited list
+  from the publisher and passes it into `refresh(using:)`. Reading the property instead planned the fetch
+  without the symbol just added, so a new row sat on a dash until the next tick; it looked intermittent only
+  because an add during an in-flight fetch is deferred by `refreshQueued` and runs once the property has
+  caught up. `Tools`-style harnesses that seed the watchlist before constructing the reader (uisnap does)
+  cannot reproduce it — the order has to be reader first, add second.
 - **Anything derived from a price is derived from OUR price.** The fundamentals feed hands over a
   ready-made P/E and P/B computed against a snapshot of its own — for VCB that snapshot was 59,900 against
   a board price of 54,600. Only its per-share figures are kept; the ratios are recomputed in
