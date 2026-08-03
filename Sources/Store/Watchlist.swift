@@ -1,9 +1,10 @@
 // Watchlist.swift — the user's chosen symbols, persisted to UserDefaults as JSON.
 //
 // Stored as one JSON blob under a single key rather than as parallel arrays, so adding a per-symbol
-// field later (an alert threshold, a display alias) doesn't need a migration. The decode is
-// deliberately forgiving: a blob written by a future version with extra keys still decodes, and a
-// corrupt or absent blob falls back to the defaults instead of launching with an empty menu bar.
+// field later (an alert threshold, a display alias) doesn't need a migration. Reading and writing that
+// blob is Core/WatchlistCoding.swift's job, and its header records the incident that shaped it: the rule
+// is that a build never deletes what it cannot read, because an older copy of this app running at login
+// once replaced a whole list with the shipped defaults over a single market value it didn't know.
 //
 // Everything here is storage and ordering. The one non-obvious rule — that a stored market can be wrong
 // and has to be corrected — is in Core/WatchlistRepair.swift, where it is testable.
@@ -14,6 +15,12 @@ import Combine
 @MainActor
 final class Watchlist: ObservableObject {
     private static let key = "watchlist.v1"
+
+    /// Where a blob that isn't JSON at all is put before the defaults are written over it. Kept rather
+    /// than discarded because the alternative is what this file exists to prevent: a list that is simply
+    /// gone, with nothing left to look at. Only the FIRST such blob is kept — a second bad launch would
+    /// otherwise overwrite the evidence with the already-empty list that replaced it.
+    private static let unreadableKey = "watchlist.v1.unreadable"
 
     /// Shipped defaults: the two Vietnamese benchmarks a VN-based user checks first, one large-cap to
     /// show what an equity row looks like, and Bitcoin. Only VN-Index and BTC are pinned to the menu
@@ -27,13 +34,25 @@ final class Watchlist: ObservableObject {
 
     @Published private(set) var symbols: [WatchedSymbol]
 
+    /// The parts of the stored blob this build didn't produce — rows it couldn't decode, and the original
+    /// JSON of the rows it could. Held for the lifetime of the store because every `save` has to put them
+    /// back; see WatchlistCoding.
+    private var carried: WatchlistCoding.Carried
+
     init() {
-        let stored = Self.load()
-        let repaired = stored.map(WatchlistRepair.repaired)
-        symbols = repaired ?? Self.shipped
+        let raw = UserDefaults.standard.data(forKey: Self.key)
+        let stored = raw.flatMap(WatchlistCoding.decode)
+        if let raw, stored == nil { Self.stashUnreadable(raw) }
+
+        carried = stored?.carried ?? .none
+        let repaired = stored.map { WatchlistRepair.repaired($0.symbols) }
+        // An empty result is treated as no result: a blob holding only rows from a later version leaves
+        // this build with nothing to show, and four defaults are better than an empty panel. The rows it
+        // couldn't read are still in `carried`, so showing the defaults does not delete them.
+        symbols = (repaired?.isEmpty == false ? repaired : nil) ?? Self.shipped
         // Write a repair straight back rather than only holding it in memory, so a corrected market
         // survives even if the list is never edited again.
-        if let stored, let repaired, repaired != stored { save() }
+        if let stored, let repaired, !repaired.isEmpty, repaired != stored.symbols { save() }
     }
 
     /// The rows rendered in the menu bar, in watchlist order. Capped so a user who pins everything
@@ -105,15 +124,13 @@ final class Watchlist: ObservableObject {
     }
 
     private func save() {
-        guard let data = try? JSONEncoder().encode(symbols) else { return }
+        guard let data = WatchlistCoding.encode(symbols, carrying: carried) else { return }
         UserDefaults.standard.set(data, forKey: Self.key)
     }
 
-    private static func load() -> [WatchedSymbol]? {
-        guard let data = UserDefaults.standard.data(forKey: key),
-              let decoded = try? JSONDecoder().decode([WatchedSymbol].self, from: data),
-              !decoded.isEmpty
-        else { return nil }
-        return decoded
+    private static func stashUnreadable(_ raw: Data) {
+        guard UserDefaults.standard.data(forKey: unreadableKey) == nil else { return }
+        UserDefaults.standard.set(raw, forKey: unreadableKey)
+        NSLog("StockBar: watchlist blob was unreadable — kept a copy under \(unreadableKey)")
     }
 }

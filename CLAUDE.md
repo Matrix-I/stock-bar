@@ -128,6 +128,17 @@ where it used to be) makes the gesture fail on the biggest target in the row.
   it, and the correction has to be a function of the read. And testing the clock instead of the reading's
   `asOf`: at 09:05 the board is mid-auction with no matched price, so the previous day's change would come
   back for the ten minutes until a real quote lands.
+- **A build must never delete what it cannot read.** The watchlist is one JSON blob in `UserDefaults`, and
+  two copies of this app share it: the installed one in `~/Applications`, which is what the login item
+  launches, and the development build in `~/stock-bar`. The installed one is routinely the OLDER of the two,
+  so it will meet rows from a market it has never heard of. It used to decode the array in one go, so one
+  such row threw, `try?` read the throw as "no watchlist", and a dozen symbols were replaced by the four
+  shipped defaults and then saved over. `Core/WatchlistCoding.swift` decodes row by row and carries anything
+  it cannot account for — a foreign row, an unknown field on a readable row — straight back into the next
+  write. Re-encoding straight from `[WatchedSymbol]` is the regression to watch for: it compiles, it round
+  trips, and it silently drops everything a later version added. Note the limit of the fix, too: it protects
+  against the *next* downgrade, never against a build already installed, so an old copy still has to be
+  replaced rather than reasoned with.
 - **Anything derived from a price is derived from OUR price.** The fundamentals feed hands over a
   ready-made P/E and P/B computed against a snapshot of its own — for VCB that snapshot was 59,900 against
   a board price of 54,600. Only its per-share figures are kept; the ratios are recomputed in

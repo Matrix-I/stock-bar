@@ -91,6 +91,17 @@ in a stablecoin quote (`BTCUSDT`, `ETHUSDC`) is filed under Binance whatever the
 sending it to a HOSE backend can only ever fail. An existing watchlist with symbols on the wrong market is
 repaired on load.
 
+**An older copy of the app cannot delete a newer one's watchlist.** The list is one JSON blob in
+`UserDefaults`, and it used to be decoded in one go: a single row carrying a market the running build had
+never heard of made the whole decode throw, which was silently read as "no watchlist" and answered with the
+four shipped defaults — over the top of a dozen real symbols. It is a live risk rather than a theoretical
+one, because an installed copy in `~/Applications` is what the login item launches while development
+continues in `~/stock-bar`, so the build that runs at every restart is routinely the older of the two. Rows
+are decoded one at a time now, and anything this build cannot account for — a whole row from a later
+version, or a field on a row it can otherwise read — is carried through untouched to the next save. An older
+build shows less than a newer one wrote; it no longer deletes the difference. See
+`Sources/Core/WatchlistCoding.swift`.
+
 **Clicking a row floats a detail card off it**, and the card stays until it is dismissed — click the same
 row again to close it, or another row to move it there:
 
@@ -224,6 +235,7 @@ Sources/
     Fundamentals.swift         EPS and book value → P/E and P/B at the live price
     QuoteDetail.swift          the detail card's label/value rows, per kind of instrument
     DetailCardLayout.swift     where that card floats: under the row, above it, or over the chrome
+    WatchlistCoding.swift      read/write the stored blob, keeping rows a build can't decode
     WatchlistRepair.swift      refile a symbol stored under a market that cannot serve it
     MenuBarLabel.swift         what the menu bar says, as an Equatable value
   Reader/                      the venues
@@ -252,7 +264,7 @@ Sources/
     Panel/                       PanelHeader, SymbolList, QuoteRow, Sparkline,
                                  QuoteDetailCard, AddSymbolField, SettingsFooter
   App/StockBarApp.swift        NSStatusItem + NSPopover, entry point
-Tests/StockBarCoreTests/       102 tests over Sources/Core
+Tests/StockBarCoreTests/       113 tests over Sources/Core
 Tools/probe.sh                 exercises the data layer from the command line
 Tools/uisnap.sh                renders the popover to a PNG (no Screen Recording permission needed)
 Tools/makeicon.sh              regenerates AppIcon.icns from BrandMark (the .icns is committed)
