@@ -14,9 +14,10 @@ enum Market: String, Codable, Sendable, CaseIterable {
     case vietnam
     /// Crypto pairs — always open.
     case crypto
-    /// The world indices in `WorldIndex.all` — Wall Street and Tokyo. One market rather than one per
-    /// country because a market here selects a data source, and a single feed serves all of them; the
-    /// venue, which is what actually differs, is carried per symbol by the listing.
+    /// The world instruments in `WorldIndex.all` — Wall Street, Tokyo, gold and the dollar index. One
+    /// market rather than one per country or asset class, because a market here selects a data source and
+    /// a single feed serves all of them; the venue, which is what actually differs, is carried per symbol
+    /// by the listing.
     case world
 }
 
@@ -53,8 +54,9 @@ extension Market {
         if cryptoQuoteAssets.contains(where: { upper.hasSuffix($0) && upper.count > $0.count }) {
             return .crypto
         }
-        // A named world index can only be served by one feed, and none of these names is a ticker on the
-        // Vietnamese board — checked against it, including the three-letter DJI, before adding them.
+        // A named world instrument can only be served by one feed, and none of these names is a ticker on
+        // the Vietnamese board — checked against it, including the three-letter DJI, DXY and XAU, before
+        // adding them.
         if WorldIndex.listing(for: upper) != nil { return .world }
         return nil
     }
@@ -62,9 +64,11 @@ extension Market {
 
 /// Facts about a ticker string that hold before any quote for it exists.
 enum Ticker {
-    /// Whether a symbol names an index rather than a tradable stock. Indices are formatted with decimals,
-    /// have no ceiling/floor band, and come from a different VPS endpoint on a different price scale — so
-    /// this one predicate is consulted by the feed, the formatter and the row.
+    /// Whether a symbol names an index rather than a tradable stock — or, for the one row in the world
+    /// table that is a future rather than an index, something that behaves like one here: formatted with
+    /// decimals, no ceiling/floor band, and no per-share fundamentals to look up. On the Vietnamese side it
+    /// also picks the endpoint and the price scale, which is why one predicate is consulted by the feed,
+    /// the formatter and the row.
     static func isIndex(_ symbol: String) -> Bool {
         let s = symbol.uppercased()
         if WorldIndex.listing(for: s) != nil { return true }

@@ -140,21 +140,101 @@ struct MarketHoursTests {
         #expect(MarketHours.isOpen(exchange: .tokyo, at: wednesday(13, 30)) == false) // 15:30 JST
     }
 
-    @Test("The world market is open when any of its venues is, and closed between them")
+    @Test("COMEX trades overnight, with one hole a day at 17:00 New York time")
+    func comexBreak() {
+        // 16:00 ICT is 05:00 ET: the middle of the gold night session, when every equity venue is shut.
+        #expect(MarketHours.isOpen(exchange: .comex, at: wednesday(16, 0)))
+        // The break, both edges. 04:00 ICT on Thursday is 17:00 ET on Wednesday — the feed's minute bars
+        // stop at 16:59 and resume at 18:00 on every complete day in a 5-day window, so these are the
+        // edges to the minute rather than an approximation.
+        #expect(MarketHours.isOpen(exchange: .comex, at: ict(2026, 7, 30, 3, 59)))
+        #expect(MarketHours.isOpen(exchange: .comex, at: ict(2026, 7, 30, 4, 0)) == false)
+        #expect(MarketHours.isOpen(exchange: .comex, at: ict(2026, 7, 30, 4, 59)) == false)
+        #expect(MarketHours.isOpen(exchange: .comex, at: ict(2026, 7, 30, 5, 0)))
+    }
+
+    @Test("The gold week ends on Friday afternoon and starts again on Sunday evening")
+    func comexWeek() {
+        // Friday 17:00 ET is Saturday 04:00 ICT: the last daily break of the week never ends.
+        #expect(MarketHours.isOpen(exchange: .comex, at: ict(2026, 8, 1, 3, 59)))       // Fri 16:59 ET
+        #expect(MarketHours.isOpen(exchange: .comex, at: ict(2026, 8, 1, 4, 0)) == false)
+        // And it stays shut for the rest of Friday: 07:00 ICT on Saturday is 20:00 ET on Friday, which a
+        // week modelled as "every day has a break and then resumes" would report open again.
+        #expect(MarketHours.isOpen(exchange: .comex, at: ict(2026, 8, 1, 7, 0)) == false)
+        // Saturday in New York is the one full day off: 23:00 ICT on Saturday is 12:00 ET, still Saturday.
+        #expect(MarketHours.isOpen(exchange: .comex, at: ict(2026, 8, 1, 23, 0)) == false)
+        // And Sunday stays shut until the evening — 12:00 ICT on Sunday is only 01:00 ET on Sunday. Both
+        // instants are needed: ICT and ET disagree about which day it is for eleven hours a day, so one
+        // assertion cannot cover both weekend days.
+        #expect(MarketHours.isOpen(exchange: .comex, at: ict(2026, 8, 2, 12, 0)) == false)
+        // Sunday 18:00 ET is Monday 05:00 ICT, which is where the week begins.
+        #expect(MarketHours.isOpen(exchange: .comex, at: ict(2026, 8, 3, 4, 59)) == false)
+        #expect(MarketHours.isOpen(exchange: .comex, at: ict(2026, 8, 3, 5, 0)))
+    }
+
+    @Test("The overnight break moves with US daylight saving, like the equity venues")
+    func comexFollowsDST() {
+        // 17:00 ET is 04:00 ICT in summer and 05:00 in winter. A fixed offset would put this break an hour
+        // out for half of every year — and a break in the wrong place is a row greying out at 4am, or a
+        // fetch skipped while the market is live.
+        #expect(MarketHours.isOpen(exchange: .comex, at: ict(2026, 1, 15, 4, 0)))         // 16:00 EST
+        #expect(MarketHours.isOpen(exchange: .comex, at: ict(2026, 1, 15, 5, 0)) == false) // 17:00 EST
+        #expect(MarketHours.isOpen(exchange: .comex, at: ict(2026, 1, 15, 6, 0)))         // 18:00 EST
+    }
+
+    @Test("ICE keeps its own break, an hour later and half an hour longer than COMEX's")
+    func iceBreak() {
+        // The two venues are NOT interchangeable, which is the whole reason they are separate cases: at
+        // 17:30 ET gold is on its break and the dollar index is still printing.
+        #expect(MarketHours.isOpen(exchange: .iceUS, at: ict(2026, 7, 30, 4, 30)))
+        #expect(MarketHours.isOpen(exchange: .comex, at: ict(2026, 7, 30, 4, 30)) == false)
+        // ICE's own break: 18:00–19:30 ET, which is 05:00–06:30 ICT.
+        #expect(MarketHours.isOpen(exchange: .iceUS, at: ict(2026, 7, 30, 4, 59)))
+        #expect(MarketHours.isOpen(exchange: .iceUS, at: ict(2026, 7, 30, 5, 0)) == false)
+        #expect(MarketHours.isOpen(exchange: .iceUS, at: ict(2026, 7, 30, 6, 29)) == false)
+        #expect(MarketHours.isOpen(exchange: .iceUS, at: ict(2026, 7, 30, 6, 30)))
+    }
+
+    @Test("ICE reopens for the week before its daily break would have ended")
+    func iceSundayOpenIsNotTheBreakEnd() {
+        // Sunday 18:00 ET — Monday 05:00 ICT — is an hour and a half before 19:30, so a week modelled with
+        // one edge for both would report the dollar index closed for the first 90 minutes of every week.
+        #expect(MarketHours.isOpen(exchange: .iceUS, at: ict(2026, 8, 3, 5, 0)))
+        #expect(MarketHours.isOpen(exchange: .iceUS, at: ict(2026, 8, 3, 4, 59)) == false)
+        // And Friday's close is its break start, an hour after COMEX's: Saturday 05:00 ICT is Friday 18:00 ET.
+        #expect(MarketHours.isOpen(exchange: .iceUS, at: ict(2026, 8, 1, 4, 59)))
+        #expect(MarketHours.isOpen(exchange: .iceUS, at: ict(2026, 8, 1, 5, 0)) == false)
+        #expect(MarketHours.isOpen(exchange: .iceUS, at: ict(2026, 8, 1, 7, 0)) == false)   // Fri 20:00 ET
+    }
+
+    @Test("The world market is open when any of its venues is, which is now all but the weekend")
     func worldIsTheUnion() {
         #expect(MarketHours.isOpen(.world, at: wednesday(8, 0)))               // Tokyo trading
         #expect(MarketHours.isOpen(.world, at: wednesday(22, 0)))              // Wall Street trading
-        #expect(MarketHours.isOpen(.world, at: wednesday(16, 0)) == false)     // between the two
-        #expect(MarketHours.isOpen(.world, at: wednesday(9, 30)) == false)     // Tokyo's lunch break
+        // 16:00 ICT is 05:00 ET: both equity venues are shut and the overnight ones are not. The union used
+        // to be false here, which is what made it a serviceable "is anything worth fetching" — it no longer
+        // is, and QuoteReader asks per symbol instead.
+        #expect(MarketHours.isOpen(.world, at: wednesday(16, 0)))
+        #expect(MarketHours.isOpen(.world, at: wednesday(9, 30)))              // Tokyo's lunch break
+        // The weekend is the only hole left: Saturday 12:00 ICT is Saturday 01:00 ET.
+        #expect(MarketHours.isOpen(.world, at: ict(2026, 8, 1, 12, 0)) == false)
     }
 
-    @Test("Staleness asks the symbol's own venue, not the whole bucket")
+    @Test("Staleness and the fetch gate ask the symbol's own venue, not the whole bucket")
     func perSymbolVenue() {
         // 08:00 ICT: Tokyo is trading and New York closed hours ago. Asking the market alone answers "open"
         // for both, which greyed out every Dow row for the length of a Tokyo session.
         #expect(MarketHours.isOpen(.world, symbol: "NI225", at: wednesday(8, 0)))
         #expect(MarketHours.isOpen(.world, symbol: "DJI", at: wednesday(8, 0)) == false)
         #expect(MarketHours.isOpen(.world, symbol: "IXIC", at: wednesday(22, 0)))
+        // 16:00 ICT is the hour that matters now: gold is trading, the dollar index is trading, and the
+        // three equity indices are not. Answering per market would have all five refetched every minute.
+        #expect(MarketHours.isOpen(.world, symbol: "GOLD", at: wednesday(16, 0)))
+        #expect(MarketHours.isOpen(.world, symbol: "DXY", at: wednesday(16, 0)))
+        #expect(MarketHours.isOpen(.world, symbol: "DJI", at: wednesday(16, 0)) == false)
+        #expect(MarketHours.isOpen(.world, symbol: "NI225", at: wednesday(16, 0)) == false)
+        // An alias narrows to the same venue as its canonical name, since `listing` accepts both.
+        #expect(MarketHours.isOpen(.world, symbol: "XAU", at: wednesday(16, 0)))
         // A market that is one venue answers exactly as it did before.
         #expect(MarketHours.isOpen(.vietnam, symbol: "VCB", at: wednesday(10, 0)))
         #expect(MarketHours.isOpen(.crypto, symbol: "BTCUSDT", at: wednesday(3, 0)))
@@ -166,7 +246,10 @@ struct MarketHoursTests {
     func worldStatusText() {
         #expect(MarketHours.statusText(for: .world, at: wednesday(22, 0)) == "Wall St open")
         #expect(MarketHours.statusText(for: .world, at: wednesday(8, 0)) == "Tokyo open")
-        #expect(MarketHours.statusText(for: .world, at: wednesday(16, 0)) == "World markets closed")
+        // The overnight venues are checked last: naming them while Wall Street is open would replace the
+        // more useful line with one that is true almost all the time.
+        #expect(MarketHours.statusText(for: .world, at: wednesday(16, 0)) == "Futures open")
+        #expect(MarketHours.statusText(for: .world, at: ict(2026, 8, 1, 12, 0)) == "World markets closed")
     }
 
     @Test("A world index is never waiting for an ICT day to start")

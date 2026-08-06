@@ -114,12 +114,24 @@ where it used to be) makes the gesture fail on the biggest target in the row.
 - **VN prices are real VND in the model.** The VPS board reports equities in thousands and indices in
   points; the scaling happens once, in `VNQuoteSource`. Getting it wrong is a 1000× error on screen.
 - **`.world` is a bucket of venues, not one venue.** `Market` picks the data source and one Yahoo source
-  serves the Dow, the Nasdaq and the Nikkei; what differs is the trading day, which each symbol carries via
-  `WorldIndex.listing`. So `isOpen(.world)` is the union — right for "is this worth polling" and wrong for
-  "should this row look stale", which is why `QuoteReader.isStale` asks `isOpen(_:symbol:)` instead. New
-  York's and Tokyo's windows come from the system time-zone database, unlike Vietnam's fixed +07:00: ET moves
-  an hour twice a year, so 09:30 there is 20:30 ICT in summer and 21:30 in winter and no fixed offset is
-  right all year. Adding an index is a row in `WorldIndex.all`; adding a *venue* is also a window here.
+  serves the Dow, the Nasdaq, the Nikkei, gold and the dollar index; what differs is the trading day, which
+  each symbol carries via `WorldIndex.listing`. So `isOpen(.world)` is the union — and since COMEX and ICE
+  trade overnight, that union is now true at every hour of a weekday. It is therefore useless as a gate:
+  **both** `QuoteReader.shouldFetch` and `isStale` ask `isOpen(_:symbol:)` per row instead. Reading it per
+  market is a regression in each direction — every Dow row greyed out for the length of a Tokyo session, and
+  once a gold row existed the Dow, the Nasdaq and the Nikkei were refetched every minute all night. Every
+  window comes from the system time-zone database, unlike Vietnam's fixed +07:00: ET moves an hour twice a
+  year, so 09:30 there is 20:30 ICT in summer and 21:30 in winter and no fixed offset is right all year.
+  Adding an instrument is a row in `WorldIndex.all`; adding a *venue* is also a window here.
+- **A venue can be slow on purpose, and staleness has to know.** COMEX and ICE hold free data back by ten
+  minutes, so a gold or dollar-index quote is ALWAYS ~600 seconds old while its venue trades (measured 604s
+  and 602s, against 0.9s for ^DJI; Yahoo's `exchangeDataDelayedBy` is null and no help). Against the bare
+  `activeInterval * 1.5` both rows rendered permanently dimmed — a working feed reporting itself broken —
+  so `WorldExchange.feedDelay` is added to the allowance. It is set to fifteen minutes, not the measured
+  ten: the feed publishes minute bars and the app polls once a minute, so the true lag sweeps to ~660s and a
+  tighter bound lets a healthy row flicker. Adding a venue whose data is delayed and leaving `feedDelay` at
+  zero is the regression to watch for — it looks like nothing at all in a screenshot taken while the market
+  is shut, because a closed venue is never stale.
 - **A change figure belongs to a session, and the day turns at ICT midnight.** Both feeds keep serving the
   finished session's numbers until the next one starts, so `QuoteReader.quotes` runs every quote through
   `Quote.rebasedForPendingSession(at:)`, which rebases a VN quote onto its own last close once the day has
@@ -176,10 +188,14 @@ where it used to be) makes the gesture fail on the biggest target in the row.
   ```
   The long one matters: with 18 rows the list exceeds the cap and the *scrolling* branch is what gets
   rendered. A refactor that claims to preserve the layout should produce identical hashes across all of
-  them. The hover one needs the network to show its P/E and P/B, so it is the one state that is not
+  them. The card one needs the network to show its P/E and P/B, so it is the one state that is not
   byte-deterministic — check it by eye, and check that the height it prints matches `plain`, because the
   card floats and must cost the panel nothing. Force it onto the last symbol as well as the first: those
   are the two placements (below the row, and flipped above it).
+
+  A row's DIMMING is only visible with the network up and its venue trading, which is why a delayed feed can
+  ship looking fine: `STOCKBAR_UI_WATCHLIST=GOLD,DXY,DJI ./Tools/uisnap.sh /tmp/w.png dark` is what caught
+  the COMEX/ICE delay, and only because it was run at 00:23 ICT with New York open.
 
 When a change is *meant* to preserve behaviour, prove it rather than asserting it. Four matching PNG
 hashes is a proof; "it still compiles" is not.

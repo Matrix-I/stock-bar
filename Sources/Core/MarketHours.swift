@@ -62,13 +62,54 @@ enum MarketHours {
     private static let tokyoLunchEnd = 12 * 60 + 30
     private static let tokyoClose = 15 * 60 + 30
 
+    /// The shape of an overnight futures week, which is what both COMEX (gold) and ICE Futures US (the
+    /// dollar index) trade: it opens on Sunday evening in New York, runs through every night, stops once a
+    /// day for a maintenance break, and the last of those breaks is the close of the whole week. One type
+    /// with two sets of edges rather than two hand-written predicates, because the only thing that differs
+    /// between the venues is where the break falls.
+    ///
+    /// In ET, like the equity venues above, and for the same reason: the break is defined in the venue's
+    /// own zone and moves with US daylight saving, so 17:00 ET is 04:00 ICT in summer and 05:00 in winter.
+    private struct OvernightWeek {
+        /// Sunday's reopen. Its own field rather than `breakEnd` reused, because ICE reopens for the week
+        /// at 18:00 — an hour and a half before its own daily break ends.
+        let sundayOpen: Int
+        /// Where the daily break starts, which on a Friday is where the week ends.
+        let breakStart: Int
+        let breakEnd: Int
+    }
+
+    /// Both sets of edges were read off the feed's OWN minute bars rather than a venue's website
+    /// (range=5d&interval=1m, 2026-08-07), because what matters here is when the app can expect a new
+    /// print, not when the exchange says it is matching:
+    ///
+    ///   • `GC=F` prints from Sunday 18:00 ET and has exactly one hole a day — 17:00–18:00, a 61-minute
+    ///     gap on each of the three complete days in the window. Those are the edges to the minute.
+    ///   • `DX-Y.NYB` prints from Sunday 18:00 ET, stops at 18:04 and resumes between 19:31 and 19:45
+    ///     depending on the day. Modelled as 18:00–19:30, a few minutes wide on both sides. The cost is at
+    ///     most a quarter of an hour where the row counts as open before a new bar exists, so it can grey
+    ///     out around 06:30 ICT; waiting for ICE's published 20:00 reopen instead would leave the price
+    ///     standing for two hours, which is the worse of the two.
+    private static let comexWeek = OvernightWeek(sundayOpen: 18 * 60,
+                                                 breakStart: 17 * 60,
+                                                 breakEnd: 18 * 60)
+    private static let iceWeek = OvernightWeek(sundayOpen: 18 * 60,
+                                               breakStart: 18 * 60,
+                                               breakEnd: 19 * 60 + 30)
+
     /// Whether `market` is in a session at `date`. Crypto is always true — the venues run 24/7,
     /// including weekends, which is precisely why it can't share the equity gate.
     static func isOpen(_ market: Market, at date: Date = Date()) -> Bool {
         switch market {
         case .crypto:  return true
         case .vietnam: return isVietnamSessionOpen(at: date)
-        case .world:   return WorldExchange.allCases.contains { isOpen(exchange: $0, at: date) }
+        case .world:
+            // The union of the venues — and since COMEX and ICE trade overnight, that is now everything
+            // but the weekend. Still the right answer to "does this market ever trade at this hour", and a
+            // useless one for "is this row worth fetching": reading it that way would refetch the Dow, the
+            // Nasdaq and the Nikkei every minute all night the moment a gold row joined the list. That is
+            // why QuoteReader asks per symbol, via `isOpen(_:symbol:at:)`.
+            return WorldExchange.allCases.contains { isOpen(exchange: $0, at: date) }
         }
     }
 
@@ -88,16 +129,37 @@ enum MarketHours {
             guard weekday != 1, weekday != 7 else { return false }
             guard minutes >= tokyoOpen, minutes < tokyoClose else { return false }
             return !(minutes >= tokyoLunchStart && minutes < tokyoLunchEnd)
+        case .comex:
+            return isOpen(comexWeek, at: date)
+        case .iceUS:
+            return isOpen(iceWeek, at: date)
+        }
+    }
+
+    /// Whether an overnight futures week is trading. Computed in New York's own components for the same
+    /// reason as the equity venues, only more so: a Sunday 18:00 ET open lands on Monday at 05:00 ICT, so
+    /// an ICT window would have to wrap onto the next weekday AND move with DST.
+    private static func isOpen(_ week: OvernightWeek, at date: Date) -> Bool {
+        guard let (weekday, minutes) = weekdayAndMinutes(at: date, in: newYork) else { return false }
+        switch weekday {
+        case 7:  return false                        // Saturday — the one full day these venues are shut
+        case 1:  return minutes >= week.sundayOpen   // Sunday evening: the week starts
+        case 6:  return minutes < week.breakStart    // Friday: the daily break IS the weekly close
+        default: return !(minutes >= week.breakStart && minutes < week.breakEnd)
         }
     }
 
     /// Whether the venue that actually quotes `symbol` is trading.
     ///
     /// The same answer as `isOpen(market:)` for Vietnam and crypto, where a market IS one venue. `.world`
-    /// is a bucket of venues, and the difference shows: it counts as open whenever any of them is trading,
-    /// which is the right rule for "is this worth polling" and the wrong one for "should this row look
-    /// stale". Without narrowing to the symbol's own exchange, every Dow row greyed out through the whole
-    /// Tokyo session — six hours of a healthy feed looking broken.
+    /// is a bucket of venues, and the difference shows: it counts as open whenever any of them is trading.
+    /// Without narrowing to the symbol's own exchange, every Dow row greyed out through the whole Tokyo
+    /// session — six hours of a healthy feed looking broken.
+    ///
+    /// This is now the gate for FETCHING as well, and not only for staleness. The bucket's union used to
+    /// have a real hole in it — between Tokyo's close and Wall Street's open — which made it a serviceable
+    /// answer to "is anything here worth a request". Gold and the dollar index closed that hole: the union
+    /// is true around the clock on a weekday, so asking it per market would poll every world row all night.
     static func isOpen(_ market: Market, symbol: String, at date: Date = Date()) -> Bool {
         guard market == .world, let listing = WorldIndex.listing(for: symbol) else {
             return isOpen(market, at: date)
@@ -182,6 +244,13 @@ enum MarketHours {
             // month, and a line that is wrong for half the year is worse than one that omits it.
             if isOpen(exchange: .newYork, at: date) { return "Wall St open" }
             if isOpen(exchange: .tokyo, at: date) { return "Tokyo open" }
+            // Checked last on purpose: the overnight venues cover almost every hour, so putting them first
+            // would answer "Futures open" through a Wall Street session as well and the line would stop
+            // telling anyone anything. Reaching this means gold and the dollar index are the only world
+            // rows that can still move.
+            if isOpen(exchange: .comex, at: date) || isOpen(exchange: .iceUS, at: date) {
+                return "Futures open"
+            }
             return "World markets closed"
         case .vietnam:
             if isVietnamSessionOpen(at: date) { return "HOSE open" }

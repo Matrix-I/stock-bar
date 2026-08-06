@@ -62,12 +62,6 @@ final class Watchlist: ObservableObject {
         symbols.filter(\.pinnedToMenuBar).prefix(4).map { $0 }
     }
 
-    /// Markets that currently have at least one watched symbol, so the reader only calls the sources
-    /// it actually needs.
-    var activeMarkets: Set<Market> {
-        Set(symbols.map(\.market))
-    }
-
     func add(_ symbol: String, market: Market) {
         // Trimmed, upper-cased and resolved to one spelling per instrument — see Ticker.canonical. The id is
         // "market:symbol", so an alias stored as typed would be a second row quoting the same index.

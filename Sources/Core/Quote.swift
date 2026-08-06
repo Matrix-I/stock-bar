@@ -49,7 +49,8 @@ struct Quote: Sendable, Identifiable {
     let ceiling: Double?
     let floor: Double?
 
-    /// Session volume in shares (VN) or base units (crypto).
+    /// Session volume in shares (VN), base units (crypto) or contracts (the gold future). Absent for an
+    /// index that doesn't publish one.
     let volume: Double?
 
     /// When this quote was observed — used to grey out a stale row when a fetch has been failing.

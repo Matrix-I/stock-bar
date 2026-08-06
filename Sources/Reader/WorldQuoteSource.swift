@@ -10,15 +10,22 @@
 //     produces a wrong change all day. At range=1d it is yesterday's close, and agrees with the separate
 //     `meta.previousClose` field, which is the one read first here.
 //   • ONE REQUEST PER SYMBOL. Yahoo's multi-symbol endpoint (v7/finance/quote?symbols=…) answers 401
-//     without a crumb and cookie scraped from the web app, which is both fragile and impolite. Three
-//     indices at one request each, once a minute while a venue is open, is the cheaper trade.
+//     without a crumb and cookie scraped from the web app, which is both fragile and impolite. A handful
+//     of instruments at one request each, once a minute while a venue is open, is the cheaper trade — and
+//     the reason QuoteReader gates per SYMBOL rather than per market, now that gold and the dollar index
+//     keep the bucket "open" all night while the equity indices in it cannot move.
 //
 // The same response carries the intraday minute bars, so `fetchHistory` is the same URL read differently.
 // A User-Agent is required: with none at all the endpoint answers 429. HTTPClient already sends one.
 //
-// This forwards whatever symbol it is given (mapped through WorldIndex for the caret spellings), so it
-// serves any instrument Yahoo knows — a US stock included. Only the three indices in the table are
+// This forwards whatever symbol it is given (mapped through WorldIndex for the caret and futures
+// spellings), so it serves any instrument Yahoo knows — a US stock included. Only the five in the table are
 // advertised, because only they have a venue here, and without one the session gate can only guess.
+//
+// The mapped symbols are not all alphanumeric: `GC=F` and `DX-Y.NYB` carry `=`, `-` and `.`, and the
+// encoding below percent-escapes every one of them. Yahoo decodes the path segment before routing, so
+// `GC%3DF` and `DX%2DY%2ENYB` both answer 200 — checked live, because a 404 here is indistinguishable from
+// a delisted symbol.
 
 import Foundation
 
@@ -81,7 +88,9 @@ struct WorldQuoteSource: QuoteSource {
             ceiling: nil,           // no daily limit band outside Vietnam
             floor: nil,
             // Index "volume" is the summed turnover of the constituents, which Wall Street publishes and
-            // the Nikkei feed reports as 0. Zero means "not published", not "nothing traded".
+            // the Nikkei feed reports as 0. Zero means "not published", not "nothing traded" — and the
+            // dollar index, being computed rather than traded, omits the field entirely. For the gold
+            // future it is a contract count instead, which the same formatter renders fine.
             volume: chart.volume.flatMap { $0 > 0 ? $0 : nil },
             // The feed's own timestamp for the last print, not the fetch time. It is real-time during a
             // session (measured: 0–4 seconds behind), and out of hours it is the close — which is what makes
