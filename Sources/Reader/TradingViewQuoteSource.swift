@@ -18,8 +18,9 @@
 //     `close - change_abs`, which is the same subtraction the site itself displays; asking for `change`
 //     (the percentage) instead would recover it through a division and lose precision for no reason.
 //   • THERE ARE NO BARS. No history endpoint on this host answers — `/history` 404s and the charting data
-//     comes over an authenticated websocket — so `fetchHistory` returns nothing and the row simply draws no
-//     sparkline. That is the price of the correct number, and it was the trade made knowingly.
+//     comes over an authenticated websocket — so `fetchHistory` below returns nothing. Gold's sparkline is
+//     drawn from investing.com instead (see InvestingBarSource and the GOLD row in WorldIndex); this source
+//     never learned to draw one, it just stopped being asked.
 //   • AN UNKNOWN SYMBOL IS A CLEAN 404 with `{"code":"symbol_not_exists"}`, so a typo can be told from a
 //     dead feed exactly as it can on Yahoo.
 //
@@ -65,8 +66,10 @@ struct TradingViewQuoteSource: QuoteSource {
         return quotes
     }
 
-    /// Nothing: see the header. Empty rather than a throw, because a missing sparkline is not a failure —
-    /// `QuoteReader.refreshHistory` swallows errors anyway, and this way the distinction stays honest.
+    /// Nothing: the scanner publishes no series — see the header. Nothing routes here today, because the
+    /// one row on this feed takes its bars from investing.com, but the honest answer stays honest: an
+    /// instrument added to this feed without a bars route should draw no sparkline rather than throw, since
+    /// a missing shape is not a failed fetch.
     func fetchHistory(for symbol: String) async throws -> [Double] {
         []
     }

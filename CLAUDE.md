@@ -34,7 +34,9 @@ View  →  Store  →  Reader  →  Core          (System and Update sit off to 
   is enforced rather than merely documented. A new file here needs no manifest edit — the target is the
   directory.
 - **`Reader`** — one type per feed, plus the shared `URLSession` and one router (`WorldQuoteSource`)
-  where a single market draws on two of them. Nothing here holds published state.
+  where a single market draws on several of them. Not every type here is a `QuoteSource`:
+  `InvestingBarSource` answers only for bars, and the missing conformance is what stops it being asked
+  for a price. Nothing here holds published state.
 - **`Store`** — the two `ObservableObject`s the UI binds to (`QuoteReader`, `Watchlist`). Cadence,
   caching, persistence.
 - **`System`** — OS integration that isn't a data source: login item, polling timer, bundle version.
@@ -120,6 +122,12 @@ where it used to be) makes the gesture fail on the biggest target in the row.
   any spelling and its COMEX front-month future quotes ~60 dollars above it. Routing is one field on the
   listing (`WorldIndex.feed`), so a new upstream stays one row in the table plus the source. Unlisted symbols
   go to Yahoo — it will take an arbitrary ticker, the scanner wants an `EXCHANGE:SYMBOL` it already knows.
+  **Price and bars route separately** (`WorldIndex.bars`), because the scanner with the best gold price
+  publishes no series at all: gold's sparkline comes from investing.com pair 68, spot XAU/USD, while its
+  price stays on TradingView. That is allowed where mixing feeds for a price is not — a sparkline is
+  normalised inside its own box and draws a shape, so two honest quotes of one OTC market agree; two prices
+  on one row would not, and one of them would be invisible. Verify a new bars pair against the price feed
+  before wiring it: investing.com's own search returns 8830 for "gold", which is the COMEX future.
   The trading day likewise differs per symbol, via `WorldIndex.listing`. So `isOpen(.world)` is the union —
   and since spot gold and ICE trade overnight, that union is now true at every hour of a weekday. It is therefore useless as a gate:
   **both** `QuoteReader.shouldFetch` and `isStale` ask `isOpen(_:symbol:)` per row instead. Reading it per

@@ -41,6 +41,23 @@ struct WorldIndexTests {
         #expect(WorldIndex.feed(for: "AAPL") == .yahoo)
     }
 
+    @Test("Gold takes its bars from a different upstream than its price; nothing else does")
+    func barRouting() {
+        // The scanner publishes no series at all, so without a second route the gold row draws nothing.
+        // Pair 68 is spot XAU/USD; 8830, the id that site's own search hands you for "gold", is the COMEX
+        // future — sixty dollars away, and a plausible enough number that the mistake would render fine.
+        #expect(WorldIndex.bars(for: "GOLD") == .investing(pair: "68"))
+        #expect(WorldIndex.bars(for: "XAU") == .investing(pair: "68"))   // via the alias, as everywhere
+        // Everything else asks its own price feed, which is what keeps the price and the shape describing
+        // one instrument by construction rather than by a second row in the table agreeing with the first.
+        #expect(WorldIndex.bars(for: "DXY") == .fromPriceFeed)
+        #expect(WorldIndex.bars(for: "DJI") == .fromPriceFeed)
+        #expect(WorldIndex.bars(for: "NI225") == .fromPriceFeed)
+        // Unlisted: there is no pair id to guess, so the price feed is the only thing that can be asked.
+        #expect(WorldIndex.bars(for: "AAPL") == .fromPriceFeed)
+        #expect(WorldIndex.bars(for: "VCB") == .fromPriceFeed)
+    }
+
     @Test("Aliases resolve to one canonical spelling before anything is stored")
     func aliases() {
         #expect(Ticker.canonical("n225") == "NI225")

@@ -3,8 +3,9 @@
 A menu-bar ticker that refreshes about once a minute. Vietnamese equities and indices (HOSE/HNX) come
 from VPS's public market-data backends; crypto comes from Binance's public REST API; the Dow, the Nasdaq
 Composite, the Nikkei 225 and the US dollar index come from Yahoo Finance's chart endpoint; spot gold comes
-from TradingView's scanner, which is the only one of the four that carries it. No API key, no account, no
-Python — the app talks to all of them over `URLSession`.
+from TradingView's scanner, the only one of those that carries it, with its sparkline borrowed from
+investing.com because the scanner publishes no bars. No API key, no account, no Python — the app talks to
+all of them over `URLSession`.
 
 ```bash
 ./build_app.sh            # compiles Sources/ into StockBar.app and relaunches it
@@ -86,9 +87,22 @@ them.
 (`XAUUSD=X`, `XAU=X` and `GCUSD=X` all answer 404), and the COMEX front-month future it *does* carry quotes
 some sixty dollars above spot on the cost of carry — right for a futures trader, wrong next to a gold page.
 So this one row comes from TradingView's scanner, which returns exactly what TradingView draws as `GOLD`,
-to the cent and in real time. The cost is that the scanner publishes no bars, so **the gold row has no
-sparkline**; `WorldQuoteSource` routes per listing, and everything else stays on Yahoo. `DXY` is an index
-proper, computed by ICE against a basket of six currencies, and stays on Yahoo for its sparkline.
+to the cent and in real time.
+
+**Its sparkline comes from a third place, and that is a different kind of borrowing.** The scanner publishes
+no series at all, so the bars are asked of investing.com's chart API — pair `68`, which is spot XAU/USD and
+not the COMEX future their own search hands you for "gold". Same instrument, checked rather than assumed:
+pair 68's last minute closed 4,309.87 while the scanner read 4,309.43 and Swissquote bid 4,309.02, all
+inside a dollar, where pair 8830 printed 4,369.12 at that moment. Mixing feeds for a *price* would put two
+numbers on one row with one of them implicit, which is the thing this codebase has a rule against; a
+sparkline is normalised inside its own box and carries no axis, so what it draws is a shape, and two honest
+quotes of the same OTC market agree about the shape. The one visible difference from the other rows: that
+endpoint returns a fixed 288 one-minute bars, so gold's sparkline is a rolling **last 4h48m** rather than
+the session — a gold session is twenty-three hours long, so a session-wide line would be mostly last night.
+
+`WorldQuoteSource` routes per listing on both axes: `WorldIndex.feed` says who has the price, `WorldIndex.bars`
+says who has the shape and normally answers "the same one". `DXY` is an index proper, computed by ICE against
+a basket of six currencies, and stays wholly on Yahoo.
 
 Their sessions are gated per venue, in the venue's own time zone: 09:30–16:00 New York, 09:00–15:30 Tokyo
 with its lunch break, and — for gold and the dollar index — an overnight week that opens on Sunday evening
@@ -195,7 +209,8 @@ Crypto uses green/red only; it has no daily band.
 | Crypto sparkline | `api.binance.com/api/v3/klines?interval=1m&limit=60` | Last hour of 1-minute candles. |
 | VN fundamentals | `iboard-api.ssi.com.vn/statistics/company/financial-indicator?symbol=VCB` | EPS and the P/E–P/B pair the book value is recovered from. Cached for the ICT day. |
 | World indices | `query1.finance.yahoo.com/v8/finance/chart/%5EDJI?range=1d&interval=1m` | One request per symbol, carrying the live value, the previous close and the minute bars for the sparkline. `range=1d` is load-bearing: at a longer range the previous close is the one before the *range*, not before today. `DX%2DY%2ENYB` works the same way — Yahoo decodes the path segment — and ICE delays it ten minutes. |
-| Spot gold | `scanner.tradingview.com/symbol?symbol=TVC%3AGOLD&fields=close,change_abs,volume` | Real-time (`update_mode: streaming`). No previous-close field, so the reference is `close - change_abs`; no history endpoint, so no sparkline. An unknown symbol is a clean 404. |
+| Spot gold | `scanner.tradingview.com/symbol?symbol=TVC%3AGOLD&fields=close,change_abs,volume` | Real-time (`update_mode: streaming`). No previous-close field, so the reference is `close - change_abs`. An unknown symbol is a clean 404. `time` is the start of the trading day, not the last print. |
+| Spot gold sparkline | `api.investing.com/api/financialdata/68/historical/chart/?period=P1D&interval=PT1M&pointscount=120` | Pair `68` is spot XAU/USD (`8830` is the COMEX future). Requires a `domain-id: www` header — without it, a 500 that reads like an outage. `pointscount` is validated against `{60,70,90,110,120,140,160}` but not honoured: the answer is always the last 288 one-minute bars, rolling. An unknown pair is a 500, not a 404. |
 
 The VPS and SSI endpoints are the JSON services behind those brokers' own public web boards. They need no
 key and are community-known rather than formally documented, so treat them as something that can change
@@ -269,9 +284,10 @@ Sources/
     HTTPClient.swift           shared URLSession + lenient JSON number coercion
     VNQuoteSource.swift        VPS board + TradingView UDF history
     CryptoQuoteSource.swift    Binance ticker + klines
-    WorldQuoteSource.swift     routes a world symbol to its feed — the market is one bucket, two upstreams
+    WorldQuoteSource.swift     routes a world symbol to its feed, and its bars to theirs — one bucket, three upstreams
     YahooQuoteSource.swift     Yahoo chart endpoint: quote and sparkline from one response
     TradingViewQuoteSource.swift  TradingView scanner: spot gold, real-time, no bars
+    InvestingBarSource.swift   investing.com chart API: gold's bars only, never a price
     FundamentalsSource.swift   SSI financial-indicator, cached for the ICT day
   Store/                       the observable state the UI binds to
     QuoteReader.swift          cadence, fan-out, last-good-quote store, add-time validation
@@ -292,7 +308,7 @@ Sources/
     Panel/                       PanelHeader, SymbolList, QuoteRow, Sparkline,
                                  QuoteDetailCard, AddSymbolField, SettingsFooter
   App/StockBarApp.swift        NSStatusItem + NSPopover, entry point
-Tests/StockBarCoreTests/       120 tests over Sources/Core
+Tests/StockBarCoreTests/       121 tests over Sources/Core
 Tools/probe.sh                 exercises the data layer from the command line
 Tools/uisnap.sh                renders the popover to a PNG (no Screen Recording permission needed)
 Tools/makeicon.sh              regenerates AppIcon.icns from BrandMark (the .icns is committed)

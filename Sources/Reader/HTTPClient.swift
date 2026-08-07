@@ -41,8 +41,14 @@ enum HTTP {
     /// inconsistently — `lastPrice` arrives as a JSON number, `changePc` and `closePrice` as strings, and
     /// `r` as either — so a Decodable struct would need a custom init(from:) for nearly every field.
     /// Reading through `num(_:)` below handles both representations in one place instead.
-    static func json(_ url: URL) async throws -> Any {
-        let (data, response) = try await session.data(from: url)
+    ///
+    /// `headers` is for the one upstream that demands more than the shared defaults: investing.com's chart
+    /// API answers 500 without a `domain-id`. Per-call rather than added to the session, because a header
+    /// meant for one host has no business riding along on every request to the others.
+    static func json(_ url: URL, headers: [String: String] = [:]) async throws -> Any {
+        var request = URLRequest(url: url)
+        for (field, value) in headers { request.setValue(value, forHTTPHeaderField: field) }
+        let (data, response) = try await session.data(for: request)
         if let http = response as? HTTPURLResponse, !(200...299).contains(http.statusCode) {
             throw QuoteError.badStatus(http.statusCode)
         }
