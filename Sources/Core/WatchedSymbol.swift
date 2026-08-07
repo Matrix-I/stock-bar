@@ -45,8 +45,8 @@ struct WatchedSymbol: Codable, Sendable, Hashable, Identifiable {
         case .vietnam: return Ticker.isIndex(symbol) ? "Index" : "HOSE"
         // The exchange, not "Index": nearly every world row IS one, so the word would distinguish almost
         // nothing, while the venue says which clock the row is on — the answer to why the Dow sat still all
-        // morning. For GOLD it carries a second meaning, and the more important one: COMEX says the number
-        // is the front-month future, which is not what a spot gold page prints.
+        // morning. For GOLD it carries a second meaning, and the more important one: "Spot" says the number
+        // is the metal's own price and not the COMEX future sixty dollars above it.
         case .world:   return WorldIndex.listing(for: symbol)?.exchange.label ?? "World"
         }
     }

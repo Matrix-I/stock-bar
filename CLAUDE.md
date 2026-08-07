@@ -33,7 +33,8 @@ View  →  Store  →  Reader  →  Core          (System and Update sit off to 
   directory the tests compile**, and `run_tests.sh` greps it for violations and fails the run, so the rule
   is enforced rather than merely documented. A new file here needs no manifest edit — the target is the
   directory.
-- **`Reader`** — one type per venue, plus the shared `URLSession`. Nothing here holds published state.
+- **`Reader`** — one type per feed, plus the shared `URLSession` and one router (`WorldQuoteSource`)
+  where a single market draws on two of them. Nothing here holds published state.
 - **`Store`** — the two `ObservableObject`s the UI binds to (`QuoteReader`, `Watchlist`). Cadence,
   caching, persistence.
 - **`System`** — OS integration that isn't a data source: login item, polling timer, bundle version.
@@ -113,21 +114,25 @@ where it used to be) makes the gesture fail on the biggest target in the row.
   Don't `cd` into it (that breaks codesign paths) and don't commit it.
 - **VN prices are real VND in the model.** The VPS board reports equities in thousands and indices in
   points; the scaling happens once, in `VNQuoteSource`. Getting it wrong is a 1000× error on screen.
-- **`.world` is a bucket of venues, not one venue.** `Market` picks the data source and one Yahoo source
-  serves the Dow, the Nasdaq, the Nikkei, gold and the dollar index; what differs is the trading day, which
-  each symbol carries via `WorldIndex.listing`. So `isOpen(.world)` is the union — and since COMEX and ICE
-  trade overnight, that union is now true at every hour of a weekday. It is therefore useless as a gate:
+- **`.world` is a bucket of venues AND of feeds, not one of either.** `Market` picks a source, but that
+  source is now `WorldQuoteSource`, a router: Yahoo's chart endpoint serves the Dow, the Nasdaq, the Nikkei
+  and the dollar index, while TradingView's scanner serves spot gold, because Yahoo carries no spot gold at
+  any spelling and its COMEX front-month future quotes ~60 dollars above it. Routing is one field on the
+  listing (`WorldIndex.feed`), so a new upstream stays one row in the table plus the source. Unlisted symbols
+  go to Yahoo — it will take an arbitrary ticker, the scanner wants an `EXCHANGE:SYMBOL` it already knows.
+  The trading day likewise differs per symbol, via `WorldIndex.listing`. So `isOpen(.world)` is the union —
+  and since spot gold and ICE trade overnight, that union is now true at every hour of a weekday. It is therefore useless as a gate:
   **both** `QuoteReader.shouldFetch` and `isStale` ask `isOpen(_:symbol:)` per row instead. Reading it per
   market is a regression in each direction — every Dow row greyed out for the length of a Tokyo session, and
   once a gold row existed the Dow, the Nasdaq and the Nikkei were refetched every minute all night. Every
   window comes from the system time-zone database, unlike Vietnam's fixed +07:00: ET moves an hour twice a
   year, so 09:30 there is 20:30 ICT in summer and 21:30 in winter and no fixed offset is right all year.
   Adding an instrument is a row in `WorldIndex.all`; adding a *venue* is also a window here.
-- **A venue can be slow on purpose, and staleness has to know.** COMEX and ICE hold free data back by ten
-  minutes, so a gold or dollar-index quote is ALWAYS ~600 seconds old while its venue trades (measured 604s
-  and 602s, against 0.9s for ^DJI; Yahoo's `exchangeDataDelayedBy` is null and no help). Against the bare
-  `activeInterval * 1.5` both rows rendered permanently dimmed — a working feed reporting itself broken —
-  so `WorldExchange.feedDelay` is added to the allowance. It is set to fifteen minutes, not the measured
+- **A venue can be slow on purpose, and staleness has to know.** ICE holds free data back by ten minutes,
+  so a dollar-index quote is ALWAYS ~600 seconds old while its venue trades (measured 602s, against 0.9s for
+  ^DJI; Yahoo's `exchangeDataDelayedBy` is null and no help). Against the bare `activeInterval * 1.5` the row
+  rendered permanently dimmed — a working feed reporting itself broken — so `WorldExchange.feedDelay` is
+  added to the allowance. It is set to fifteen minutes, not the measured
   ten: the feed publishes minute bars and the app polls once a minute, so the true lag sweeps to ~660s and a
   tighter bound lets a healthy row flicker. Adding a venue whose data is delayed and leaving `feedDelay` at
   zero is the regression to watch for — it looks like nothing at all in a screenshot taken while the market
@@ -195,7 +200,9 @@ where it used to be) makes the gesture fail on the biggest target in the row.
 
   A row's DIMMING is only visible with the network up and its venue trading, which is why a delayed feed can
   ship looking fine: `STOCKBAR_UI_WATCHLIST=GOLD,DXY,DJI ./Tools/uisnap.sh /tmp/w.png dark` is what caught
-  the COMEX/ICE delay, and only because it was run at 00:23 ICT with New York open.
+  the ICE delay, and only because it was run at 00:23 ICT with New York open. The same command is the check
+  for a row that has quietly lost its data source, since a feed swap shows up here as a missing sparkline or
+  a price that jumped by a basis.
 
 When a change is *meant* to preserve behaviour, prove it rather than asserting it. Four matching PNG
 hashes is a proof; "it still compiles" is not.

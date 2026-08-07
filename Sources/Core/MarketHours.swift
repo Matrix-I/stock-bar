@@ -62,8 +62,8 @@ enum MarketHours {
     private static let tokyoLunchEnd = 12 * 60 + 30
     private static let tokyoClose = 15 * 60 + 30
 
-    /// The shape of an overnight futures week, which is what both COMEX (gold) and ICE Futures US (the
-    /// dollar index) trade: it opens on Sunday evening in New York, runs through every night, stops once a
+    /// The shape of an overnight week, which is what both the OTC gold market and ICE Futures US (the
+    /// dollar index) keep: it opens on Sunday evening in New York, runs through every night, stops once a
     /// day for a maintenance break, and the last of those breaks is the close of the whole week. One type
     /// with two sets of edges rather than two hand-written predicates, because the only thing that differs
     /// between the venues is where the break falls.
@@ -79,20 +79,23 @@ enum MarketHours {
         let breakEnd: Int
     }
 
-    /// Both sets of edges were read off the feed's OWN minute bars rather than a venue's website
-    /// (range=5d&interval=1m, 2026-08-07), because what matters here is when the app can expect a new
-    /// print, not when the exchange says it is matching:
+    /// Both sets of edges come from a feed rather than from a venue's website, because what matters here is
+    /// when the app can expect a new print, not when the exchange says it is matching (probed 2026-08-07):
     ///
-    ///   • `GC=F` prints from Sunday 18:00 ET and has exactly one hole a day — 17:00–18:00, a 61-minute
-    ///     gap on each of the three complete days in the window. Those are the edges to the minute.
+    ///   • Gold's day rolls at 18:00 ET. TradingView's scanner reports the current trading day's start in
+    ///     `time`, and it reads 18:00 New York — which is also exactly where COMEX's own minute bars resume
+    ///     after their one hole a day. Those bars (`GC=F` at range=5d&interval=1m) stop at 16:59 and pick up
+    ///     at 18:00 on every complete day in the window, a 61-minute gap, and the OTC market keeps the same
+    ///     rollover. The scanner publishes no bars of its own, so this is corroboration rather than direct
+    ///     measurement — but the two feeds agree on the boundary, which is the part that matters.
     ///   • `DX-Y.NYB` prints from Sunday 18:00 ET, stops at 18:04 and resumes between 19:31 and 19:45
     ///     depending on the day. Modelled as 18:00–19:30, a few minutes wide on both sides. The cost is at
     ///     most a quarter of an hour where the row counts as open before a new bar exists, so it can grey
     ///     out around 06:30 ICT; waiting for ICE's published 20:00 reopen instead would leave the price
     ///     standing for two hours, which is the worse of the two.
-    private static let comexWeek = OvernightWeek(sundayOpen: 18 * 60,
-                                                 breakStart: 17 * 60,
-                                                 breakEnd: 18 * 60)
+    private static let spotWeek = OvernightWeek(sundayOpen: 18 * 60,
+                                                breakStart: 17 * 60,
+                                                breakEnd: 18 * 60)
     private static let iceWeek = OvernightWeek(sundayOpen: 18 * 60,
                                                breakStart: 18 * 60,
                                                breakEnd: 19 * 60 + 30)
@@ -104,7 +107,7 @@ enum MarketHours {
         case .crypto:  return true
         case .vietnam: return isVietnamSessionOpen(at: date)
         case .world:
-            // The union of the venues — and since COMEX and ICE trade overnight, that is now everything
+            // The union of the venues — and since spot gold and ICE trade overnight, that is now everything
             // but the weekend. Still the right answer to "does this market ever trade at this hour", and a
             // useless one for "is this row worth fetching": reading it that way would refetch the Dow, the
             // Nasdaq and the Nikkei every minute all night the moment a gold row joined the list. That is
@@ -129,14 +132,14 @@ enum MarketHours {
             guard weekday != 1, weekday != 7 else { return false }
             guard minutes >= tokyoOpen, minutes < tokyoClose else { return false }
             return !(minutes >= tokyoLunchStart && minutes < tokyoLunchEnd)
-        case .comex:
-            return isOpen(comexWeek, at: date)
+        case .spot:
+            return isOpen(spotWeek, at: date)
         case .iceUS:
             return isOpen(iceWeek, at: date)
         }
     }
 
-    /// Whether an overnight futures week is trading. Computed in New York's own components for the same
+    /// Whether an overnight week is trading. Computed in New York's own components for the same
     /// reason as the equity venues, only more so: a Sunday 18:00 ET open lands on Monday at 05:00 ICT, so
     /// an ICT window would have to wrap onto the next weekday AND move with DST.
     private static func isOpen(_ week: OvernightWeek, at date: Date) -> Bool {
@@ -244,12 +247,12 @@ enum MarketHours {
             // month, and a line that is wrong for half the year is worse than one that omits it.
             if isOpen(exchange: .newYork, at: date) { return "Wall St open" }
             if isOpen(exchange: .tokyo, at: date) { return "Tokyo open" }
-            // Checked last on purpose: the overnight venues cover almost every hour, so putting them first
-            // would answer "Futures open" through a Wall Street session as well and the line would stop
-            // telling anyone anything. Reaching this means gold and the dollar index are the only world
-            // rows that can still move.
-            if isOpen(exchange: .comex, at: date) || isOpen(exchange: .iceUS, at: date) {
-                return "Futures open"
+            // Checked last on purpose: the overnight venues cover almost every hour, so putting them
+            // first would answer for a Wall Street session as well and the line would stop telling anyone
+            // anything. Reaching this means gold and the dollar index are the only world rows that can
+            // still move.
+            if isOpen(exchange: .spot, at: date) || isOpen(exchange: .iceUS, at: date) {
+                return "Gold & FX open"
             }
             return "World markets closed"
         case .vietnam:

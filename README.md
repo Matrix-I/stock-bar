@@ -2,8 +2,9 @@
 
 A menu-bar ticker that refreshes about once a minute. Vietnamese equities and indices (HOSE/HNX) come
 from VPS's public market-data backends; crypto comes from Binance's public REST API; the Dow, the Nasdaq
-Composite, the Nikkei 225, gold and the US dollar index come from Yahoo Finance's chart endpoint. No API
-key, no account, no Python — the app talks to all three over `URLSession`.
+Composite, the Nikkei 225 and the US dollar index come from Yahoo Finance's chart endpoint; spot gold comes
+from TradingView's scanner, which is the only one of the four that carries it. No API key, no account, no
+Python — the app talks to all of them over `URLSession`.
 
 ```bash
 ./build_app.sh            # compiles Sources/ into StockBar.app and relaunches it
@@ -72,33 +73,36 @@ tall as its contents, so a four-row watchlist has no empty space. The header and
 Refresh, the add field, the settings and Quit stay reachable at any list length.
 
 **Five world instruments are carried alongside the VN and crypto rows**: `DJI` (Dow Jones), `IXIC` (Nasdaq
-Composite), `NI225` (Nikkei 225), `GOLD` and `DXY` (the US dollar index). They are typed like any other
-symbol — the picker's `World` setting is only a hint, since none of those names can belong to another venue
-— and `N225`, `^N225`, `DJIA`, `NASDAQ`, `XAU`, `XAUUSD`, `USDX` and the feed's own `GC=F` / `DX-Y.NYB` are
-accepted as spellings of the same five. Each row's second line names its exchange (`New York`, `Tokyo`,
-`COMEX`, `ICE`) rather than saying `Index`, because when a price hasn't moved in hours the useful thing to
-know is which clock it is on. `DOW` is deliberately *not* a spelling of the Dow — it is a real NYSE ticker
-(Dow Inc.) — and neither `GC` nor `DX` is accepted, being short enough that a Vietnamese listing could yet
-claim them.
+Composite), `NI225` (Nikkei 225), `GOLD` (spot XAU/USD) and `DXY` (the US dollar index). They are typed like
+any other symbol — the picker's `World` setting is only a hint, since none of those names can belong to
+another venue — and `N225`, `^N225`, `DJIA`, `NASDAQ`, `XAU`, `XAUUSD`, `GC=F`, `USDX` and `DX-Y.NYB` are
+accepted as spellings of the same five. Each row's second line names its venue (`New York`, `Tokyo`, `Spot`,
+`ICE`) rather than saying `Index`, because when a price hasn't moved in hours the useful thing to know is
+which clock it is on. `DOW` is deliberately *not* a spelling of the Dow — it is a real NYSE ticker (Dow
+Inc.) — and neither `GC` nor `DX` is accepted, being short enough that a Vietnamese listing could yet claim
+them.
 
-**`GOLD` is COMEX's front-month future, not spot.** Spot XAU/USD is not on this feed at all: `XAUUSD=X`,
-`XAU=X` and `GCUSD=X` all answer 404. The future trades at a basis over spot, so the figure will not match
-a spot gold page to the dollar, and that is exactly what the `COMEX` line under the ticker is there to say.
-`DXY` is an index proper, computed by ICE against a basket of six currencies.
+**`GOLD` is the spot price, and it needs a second feed to get.** Yahoo carries no spot gold at any spelling
+(`XAUUSD=X`, `XAU=X` and `GCUSD=X` all answer 404), and the COMEX front-month future it *does* carry quotes
+some sixty dollars above spot on the cost of carry — right for a futures trader, wrong next to a gold page.
+So this one row comes from TradingView's scanner, which returns exactly what TradingView draws as `GOLD`,
+to the cent and in real time. The cost is that the scanner publishes no bars, so **the gold row has no
+sparkline**; `WorldQuoteSource` routes per listing, and everything else stays on Yahoo. `DXY` is an index
+proper, computed by ICE against a basket of six currencies, and stays on Yahoo for its sparkline.
 
 Their sessions are gated per venue, in the venue's own time zone: 09:30–16:00 New York, 09:00–15:30 Tokyo
 with its lunch break, and — for gold and the dollar index — an overnight week that opens on Sunday evening
-in New York and runs to Friday afternoon, pausing once a day (17:00–18:00 ET at COMEX, 18:00–19:30 at ICE).
+in New York and runs to Friday afternoon, pausing once a day (17:00–18:00 ET for gold, 18:00–19:30 at ICE).
 That means Wall Street is polled from 20:30 ICT in summer and 21:30 in winter, which is why every one of
 these windows comes from the system time-zone database rather than from a fixed offset the way Vietnam's
-does. The overnight edges were read off the feed's own minute bars rather than a venue's website, since what
+does. The overnight edges come from the feeds themselves rather than from a venue's website, since what
 matters is when a new print can be expected.
 
-**Gold and the dollar index arrive ten minutes late, and the app expects that.** CME and ICE hold free data
-back, so a healthy quote for either is always ~600 seconds old (measured: 604s and 602s, against 0.9s for
-the Dow). Judged against the ordinary staleness allowance both rows rendered permanently dimmed — a working
-feed reporting itself broken — so the venue's delay is added to the allowance, and the detail card says
-`Updated 10m ago` instead of pretending otherwise.
+**The dollar index arrives ten minutes late, and the app expects that.** ICE holds free data back, so a
+healthy `DXY` quote is always ~600 seconds old (measured: 602s, against 0.9s for the Dow). Judged against
+the ordinary staleness allowance the row rendered permanently dimmed — a working feed reporting itself
+broken — so the venue's delay is added to the allowance, and the detail card says `Updated 10m ago` instead
+of pretending otherwise. Gold does not need it: the scanner streams.
 
 **Adding a symbol checks it with the venue first.** Neither upstream rejects a bad ticker outright — the
 Vietnamese board just omits the row and Binance answers `400` — so a typo used to join the list and render
@@ -190,8 +194,8 @@ Crypto uses green/red only; it has no daily band.
 | Crypto | `api.binance.com/api/v3/ticker/24hr?symbols=[…]` | One request covers every pair. Reference is `openPrice` (24h rolling), matching Binance's own UI. |
 | Crypto sparkline | `api.binance.com/api/v3/klines?interval=1m&limit=60` | Last hour of 1-minute candles. |
 | VN fundamentals | `iboard-api.ssi.com.vn/statistics/company/financial-indicator?symbol=VCB` | EPS and the P/E–P/B pair the book value is recovered from. Cached for the ICT day. |
-| World instruments | `query1.finance.yahoo.com/v8/finance/chart/%5EDJI?range=1d&interval=1m` | One request per symbol, carrying the live value, the previous close and the minute bars for the sparkline. `range=1d` is load-bearing: at a longer range the previous close is the one before the *range*, not before today. |
-| — gold and DXY | same endpoint, `GC%3DF` and `DX%2DY%2ENYB` | Yahoo decodes the path segment, so the `=`, `-` and `.` in those symbols survive percent-encoding. Both are delayed ten minutes by the exchange. |
+| World indices | `query1.finance.yahoo.com/v8/finance/chart/%5EDJI?range=1d&interval=1m` | One request per symbol, carrying the live value, the previous close and the minute bars for the sparkline. `range=1d` is load-bearing: at a longer range the previous close is the one before the *range*, not before today. `DX%2DY%2ENYB` works the same way — Yahoo decodes the path segment — and ICE delays it ten minutes. |
+| Spot gold | `scanner.tradingview.com/symbol?symbol=TVC%3AGOLD&fields=close,change_abs,volume` | Real-time (`update_mode: streaming`). No previous-close field, so the reference is `close - change_abs`; no history endpoint, so no sparkline. An unknown symbol is a clean 404. |
 
 The VPS and SSI endpoints are the JSON services behind those brokers' own public web boards. They need no
 key and are community-known rather than formally documented, so treat them as something that can change
@@ -249,10 +253,10 @@ Package.swift + run_tests.sh   unit tests over Sources/Core; they do NOT build t
 Sources/
   Core/                        the pure layer — Foundation only, and the only code the tests compile
     Market.swift               the three markets; inferring one from a ticker; Ticker.isIndex/canonical
-    WorldIndex.swift           the world table: typed name → Yahoo symbol, exchange, aliases, feed delay
+    WorldIndex.swift           the world table: typed name → feed, feed symbol, venue, aliases, delay
     Quote.swift                the shape every source normalises into; PriceBand, its arrow, the reset
     WatchedSymbol.swift        one configured row: its id, its menu-bar alias, its venue line
-    MarketHours.swift          session windows for HOSE, New York, Tokyo, COMEX and ICE; the ICT day
+    MarketHours.swift          session windows for HOSE, New York, Tokyo, spot gold and ICE; the ICT day
     PriceFormat.swift          every number → the string on screen
     Fundamentals.swift         EPS and book value → P/E and P/B at the live price
     QuoteDetail.swift          the detail card's label/value rows, per kind of instrument
@@ -265,7 +269,9 @@ Sources/
     HTTPClient.swift           shared URLSession + lenient JSON number coercion
     VNQuoteSource.swift        VPS board + TradingView UDF history
     CryptoQuoteSource.swift    Binance ticker + klines
-    WorldQuoteSource.swift     Yahoo chart endpoint: quote and sparkline from one response
+    WorldQuoteSource.swift     routes a world symbol to its feed — the market is one bucket, two upstreams
+    YahooQuoteSource.swift     Yahoo chart endpoint: quote and sparkline from one response
+    TradingViewQuoteSource.swift  TradingView scanner: spot gold, real-time, no bars
     FundamentalsSource.swift   SSI financial-indicator, cached for the ICT day
   Store/                       the observable state the UI binds to
     QuoteReader.swift          cadence, fan-out, last-good-quote store, add-time validation
@@ -286,7 +292,7 @@ Sources/
     Panel/                       PanelHeader, SymbolList, QuoteRow, Sparkline,
                                  QuoteDetailCard, AddSymbolField, SettingsFooter
   App/StockBarApp.swift        NSStatusItem + NSPopover, entry point
-Tests/StockBarCoreTests/       119 tests over Sources/Core
+Tests/StockBarCoreTests/       120 tests over Sources/Core
 Tools/probe.sh                 exercises the data layer from the command line
 Tools/uisnap.sh                renders the popover to a PNG (no Screen Recording permission needed)
 Tools/makeicon.sh              regenerates AppIcon.icns from BrandMark (the .icns is committed)

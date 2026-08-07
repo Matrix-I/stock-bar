@@ -141,14 +141,15 @@ final class QuoteReader: ObservableObject {
     /// open whenever any of its venues is trading, and a Dow row would otherwise grey out for the whole
     /// Tokyo session.
     ///
-    /// The venue's own data delay is added to the allowance, and that is not a detail. COMEX and ICE hold
-    /// free data back by ten minutes, so a gold or dollar-index quote is ALWAYS about 600 seconds old while
-    /// the venue trades. Against the bare interval both rows rendered permanently dimmed — a working feed
-    /// reporting itself broken, on the two rows most likely to be watched overnight.
+    /// The venue's own data delay is added to the allowance, and that is not a detail. ICE holds free data
+    /// back by ten minutes, so a dollar-index quote is ALWAYS about 600 seconds old while the venue trades.
+    /// Against the bare interval the row rendered permanently dimmed — a working feed reporting itself
+    /// broken, on a row most likely to be looked at overnight.
     func isStale(_ id: String) -> Bool {
         guard let q = lastGood[id] else { return false }
         guard MarketHours.isOpen(q.market, symbol: q.symbol) else { return false }
-        return Date().timeIntervalSince(q.asOf) > Self.activeInterval * 1.5 + WorldIndex.feedDelay(for: q.symbol)
+        let allowance = Self.activeInterval * 1.5 + WorldIndex.feedDelay(for: q.symbol)
+        return Date().timeIntervalSince(q.asOf) > allowance
     }
 
     /// Every currently stale id, for the menu-bar label. Passed as a set rather than having MenuBarLabel
@@ -277,7 +278,7 @@ final class QuoteReader: ObservableObject {
     /// the rows with the last close instead of showing dashes until Monday.
     ///
     /// Per ROW and not per market, which only shows on `.world`. It is a bucket of venues, and two of them
-    /// — COMEX for gold, ICE for the dollar index — trade overnight, so the bucket now counts as open at
+    /// — spot gold, and ICE for the dollar index — trade overnight, so the bucket now counts as open at
     /// every hour of a weekday. Asked per market, adding a gold row would therefore have refetched the Dow,
     /// the Nasdaq and the Nikkei every single minute all night, for numbers that cannot move until their own
     /// exchange opens.
@@ -368,8 +369,8 @@ final class QuoteReader: ObservableObject {
     ///
     /// Asked per symbol, matching `shouldFetch`, so the cadence can never be faster than the reason for it:
     /// asked per market, a watchlist holding only the Dow would run at the 60-second interval every night —
-    /// `.world` counts as open because COMEX is trading — and every one of those ticks would build an empty
-    /// plan and fetch nothing at all.
+    /// `.world` counts as open because spot gold is trading — and every one of those ticks would build an
+    /// empty plan and fetch nothing at all.
     private func applyCadence() {
         let anyOpen = watchlist.symbols.contains { MarketHours.isOpen($0.market, symbol: $0.symbol) }
         poll.schedule(every: anyOpen ? Self.activeInterval : Self.idleInterval)

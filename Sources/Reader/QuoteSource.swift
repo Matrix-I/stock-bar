@@ -14,6 +14,17 @@ protocol QuoteSource: Sendable {
     func fetchHistory(for symbol: String) async throws -> [Double]
 }
 
+extension Result {
+    /// The error, for a source that fans out one request per symbol and has to tell "everything failed"
+    /// from "one symbol isn't listed". Shared by the two world feeds, which both do exactly that.
+    var failure: Failure? {
+        switch self {
+        case .success: return nil
+        case .failure(let error): return error
+        }
+    }
+}
+
 enum QuoteError: LocalizedError {
     case badStatus(Int)
     case malformed(String)

@@ -11,19 +11,34 @@ import Foundation
 @Suite("WorldIndex")
 struct WorldIndexTests {
 
-    @Test("Every listing maps to the spelling the feed wants")
-    func yahooSpelling() {
-        #expect(WorldIndex.yahooSymbol(for: "DJI") == "^DJI")
-        #expect(WorldIndex.yahooSymbol(for: "IXIC") == "^IXIC")
+    @Test("Every listing maps to the spelling its own feed wants")
+    func feedSpelling() {
+        #expect(WorldIndex.feedSymbol(for: "DJI") == "^DJI")
+        #expect(WorldIndex.feedSymbol(for: "IXIC") == "^IXIC")
         // The one where the two spellings differ by more than a caret: the app's NI225 is Yahoo's ^N225.
-        #expect(WorldIndex.yahooSymbol(for: "NI225") == "^N225")
-        // Gold and the dollar index carry no caret but plenty else — `=`, `-` and `.`, all of which the
-        // source percent-encodes. Nothing but this table should ever have to know that.
-        #expect(WorldIndex.yahooSymbol(for: "GOLD") == "GC=F")
-        #expect(WorldIndex.yahooSymbol(for: "DXY") == "DX-Y.NYB")
+        #expect(WorldIndex.feedSymbol(for: "NI225") == "^N225")
+        // The dollar index carries no caret but plenty else — `-` and `.` — and gold is on another feed
+        // entirely, with a colon in its name. All of it is percent-encoded by whichever source gets it, and
+        // nothing outside this table should ever have to know any of it.
+        #expect(WorldIndex.feedSymbol(for: "DXY") == "DX-Y.NYB")
+        #expect(WorldIndex.feedSymbol(for: "GOLD") == "TVC:GOLD")
         // Anything not in the table is forwarded as typed, which is what lets a Yahoo symbol this app has
         // never heard of still be watched.
-        #expect(WorldIndex.yahooSymbol(for: "aapl") == "AAPL")
+        #expect(WorldIndex.feedSymbol(for: "aapl") == "AAPL")
+    }
+
+    @Test("Gold comes from TradingView and everything else from Yahoo")
+    func feedRouting() {
+        // Spot XAU/USD is on no Yahoo spelling at all, and the COMEX future Yahoo does carry prints some
+        // sixty dollars above it. So this row alone takes the second feed — and getting the routing wrong
+        // is silent: the wrong upstream either 404s or answers with a plausible number for another market.
+        #expect(WorldIndex.feed(for: "GOLD") == .tradingView)
+        #expect(WorldIndex.feed(for: "XAU") == .tradingView)      // via the alias, like every other lookup
+        #expect(WorldIndex.feed(for: "DXY") == .yahoo)
+        #expect(WorldIndex.feed(for: "DJI") == .yahoo)
+        // An unlisted symbol goes to Yahoo, which is the feed that will take an arbitrary one. TradingView's
+        // scanner wants an EXCHANGE:SYMBOL pair, so guessing it would turn "not listed" into a wrong 404.
+        #expect(WorldIndex.feed(for: "AAPL") == .yahoo)
     }
 
     @Test("Aliases resolve to one canonical spelling before anything is stored")
@@ -36,7 +51,7 @@ struct WorldIndexTests {
         // asking for it cannot become three rows quoting the same contract.
         #expect(Ticker.canonical("xau") == "GOLD")
         #expect(Ticker.canonical("XAUUSD") == "GOLD")
-        #expect(Ticker.canonical("gc=f") == "GOLD")
+        #expect(Ticker.canonical("gc=f") == "GOLD")   // the future by name still means the gold row
         #expect(Ticker.canonical("usdx") == "DXY")
         #expect(Ticker.canonical("dx-y.nyb") == "DXY")
         // Not aliases: DOW is a real NYSE ticker (Dow Inc.), and GC/DX are short enough that a Vietnamese
@@ -63,15 +78,15 @@ struct WorldIndexTests {
         #expect(Market.inferred(for: "BTCUSDT") == .crypto)
     }
 
-    @Test("They are formatted and banded like indices, the future included")
+    @Test("They are formatted and banded like indices, the commodity included")
     func areIndices() {
         #expect(Ticker.isIndex("DJI"))
         #expect(Ticker.isIndex("IXIC"))
         #expect(Ticker.isIndex("NI225"))
         #expect(Ticker.isIndex("DXY"))
-        // GOLD is a futures contract, not an index. It still answers true, and that is the intended
-        // reading of the predicate here: decimals in the price, no ceiling/floor band, no per-share
-        // fundamentals to fetch. Excluding it would print the gold price as a bare integer.
+        // GOLD is a commodity price, not an index. It still answers true, and that is the intended reading
+        // of the predicate here: decimals in the price, no ceiling/floor band, no per-share fundamentals to
+        // fetch. Excluding it would print the gold price as a bare integer.
         #expect(Ticker.isIndex("GOLD"))
     }
 
@@ -80,28 +95,30 @@ struct WorldIndexTests {
         #expect(WorldIndex.listing(for: "DJI")?.exchange == .newYork)
         #expect(WorldIndex.listing(for: "IXIC")?.exchange == .newYork)
         #expect(WorldIndex.listing(for: "NI225")?.exchange == .tokyo)
-        #expect(WorldIndex.listing(for: "GOLD")?.exchange == .comex)
+        #expect(WorldIndex.listing(for: "GOLD")?.exchange == .spot)
         #expect(WorldIndex.listing(for: "DXY")?.exchange == .iceUS)
         #expect(WorldIndex.listing(for: "VCB") == nil)
         // The panel's line under the ticker.
         #expect(WatchedSymbol(symbol: "DJI", market: .world, pinnedToMenuBar: false).venueLabel == "New York")
         #expect(WatchedSymbol(symbol: "NI225", market: .world, pinnedToMenuBar: false).venueLabel == "Tokyo")
-        // For gold this line is doing more than naming a clock: it says the number is COMEX's front-month
-        // future and not the spot price a gold page prints.
-        #expect(WatchedSymbol(symbol: "GOLD", market: .world, pinnedToMenuBar: false).venueLabel == "COMEX")
+        // For gold this line is doing more than naming a clock: it says the number is the OTC spot price,
+        // not the COMEX future sixty dollars above it that Yahoo would have handed over.
+        #expect(WatchedSymbol(symbol: "GOLD", market: .world, pinnedToMenuBar: false).venueLabel == "Spot")
         #expect(WatchedSymbol(symbol: "DXY", market: .world, pinnedToMenuBar: false).venueLabel == "ICE")
     }
 
     @Test("A venue that holds its data back says so, so a healthy row is not called stale")
     func feedDelay() {
-        // COMEX and ICE publish free data ten minutes late, which is not a fault to report but a rule to
-        // account for: measured at 604s and 602s behind on 2026-08-07, against 0.9s for ^DJI. Without an
-        // allowance the gold and dollar-index rows rendered dimmed the whole time their venue was trading.
-        #expect(WorldIndex.feedDelay(for: "GOLD") == 15 * 60)
+        // ICE publishes free data ten minutes late, which is not a fault to report but a rule to account
+        // for: measured at 602s behind on 2026-08-07, against 0.9s for ^DJI. Without an allowance the
+        // dollar-index row rendered dimmed the whole time its venue was trading.
         #expect(WorldIndex.feedDelay(for: "DXY") == 15 * 60)
-        #expect(WorldIndex.feedDelay(for: "XAU") == 15 * 60)      // via the alias, like every other lookup
-        // The equity indices answer in seconds, so they keep the tight allowance — that is what lets a Dow
-        // row still report a feed that has actually stopped.
+        // Gold is on a streaming feed and keeps the tight allowance — which is also what a wrong routing
+        // would show up as, since a delayed row judged against it dims and stays dimmed.
+        #expect(WorldIndex.feedDelay(for: "GOLD") == 0)
+        #expect(WorldIndex.feedDelay(for: "XAU") == 0)            // via the alias, like every other lookup
+        // The equity indices answer in seconds too, so they keep it as well — that is what lets a Dow row
+        // still report a feed that has actually stopped.
         #expect(WorldIndex.feedDelay(for: "DJI") == 0)
         #expect(WorldIndex.feedDelay(for: "IXIC") == 0)
         #expect(WorldIndex.feedDelay(for: "NI225") == 0)
