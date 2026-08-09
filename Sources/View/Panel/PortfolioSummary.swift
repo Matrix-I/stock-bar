@@ -45,20 +45,34 @@ struct PortfolioSummary: View {
 
             // Never silent about a position it could not add. A total quietly missing a row is the one
             // failure this line must not have — it would read as a complete answer and be a partial one.
+            // Three notes rather than one because the three states have three different remedies: add a
+            // USDVND row, wait for a feed, or type in what you paid.
             if portfolio.excluded > 0 {
-                Text(excludedNote)
-                    .font(Theme.Fonts.warning)
-                    .foregroundStyle(.orange)
-                    .lineLimit(2)
-                    .fixedSize(horizontal: false, vertical: true)
+                note("\(count(portfolio.excluded)) left out — no rate to convert \(them(portfolio.excluded)).",
+                     .orange)
+            }
+            if portfolio.unpriced > 0 {
+                note("\(count(portfolio.unpriced)) left out — no price yet.", .orange)
+            }
+            // Secondary and not orange: nothing is broken and nothing is missing from the total. The figure
+            // above is complete; it is the PERCENTAGE beside it that covers only part of what is held.
+            if portfolio.withoutBasis > 0 {
+                note("\(count(portfolio.withoutBasis)) with no cost entered — outside the return.",
+                     .secondary)
             }
         }
         .opacity(stale ? Theme.Opacity.stale : 1)
         .help("Converted to VND at the USDVND rate on the panel. USDT is counted as one dollar.")
     }
 
-    private var excludedNote: String {
-        let n = portfolio.excluded
-        return "\(n) position\(n == 1 ? "" : "s") left out — no rate to convert \(n == 1 ? "it" : "them")."
+    private func note(_ text: String, _ colour: Color) -> some View {
+        Text(text)
+            .font(Theme.Fonts.warning)
+            .foregroundStyle(colour)
+            .lineLimit(2)
+            .fixedSize(horizontal: false, vertical: true)
     }
+
+    private func count(_ n: Int) -> String { "\(n) position\(n == 1 ? "" : "s")" }
+    private func them(_ n: Int) -> String { n == 1 ? "it" : "them" }
 }

@@ -20,10 +20,11 @@ struct PortfolioTests {
     }
 
     private func quote(_ symbol: String, _ market: Market, _ price: Double,
-                       at date: Date? = nil) -> (String, Quote) {
+                       at date: Date? = nil, currency: Currency? = nil) -> (String, Quote) {
         let entry = WatchedSymbol(symbol: symbol, market: market, pinnedToMenuBar: false)
         return (entry.id, Quote(symbol: symbol, market: market, price: price, reference: nil,
-                                ceiling: nil, floor: nil, volume: nil, asOf: date ?? now))
+                                ceiling: nil, floor: nil, volume: nil, asOf: date ?? now,
+                                currency: currency))
     }
 
     @Test("Every row's currency is named, and the Nikkei's is not the dollar")
@@ -37,8 +38,53 @@ struct PortfolioTests {
         // The whole reason this type exists: ~61,000 yen looks like a dollar figure and is not one, and
         // folding it in as dollars would be out by a factor of 150 while still rendering plausibly.
         #expect(Currency.of(symbol: "NI225", market: .world) == .jpy)
-        // An unlisted world symbol falls back to dollars, which is what that feed quotes.
-        #expect(Currency.of(symbol: "AAPL", market: .world) == .usd)
+    }
+
+    @Test("A ticker this app cannot read the unit off is not quietly called dollars")
+    func declinesToGuess() {
+        // `.world` is a bucket served by Yahoo, which forwards any ticker it knows and prices each listing
+        // in that listing's own currency. Defaulting the unlisted case to USD is how the yen error this
+        // type exists to prevent got back in through the front door: 7203.T is Toyota at ~2,980 JPY.
+        #expect(Currency.of(symbol: "7203.T", market: .world) == nil)
+        #expect(Currency.of(symbol: "AAPL", market: .world) == nil)
+        // Coin-quoted crypto is the same shape of error at a different scale — ETHBTC prints in bitcoin,
+        // so 0.03 is three-hundredths of a coin and not three cents.
+        #expect(Currency.of(symbol: "ETHBTC", market: .crypto) == nil)
+        #expect(Currency.of(symbol: "ETHUSDC", market: .crypto) == .usd)
+    }
+
+    @Test("A feed that names its own currency is believed, including when it says something unusable")
+    func feedNamesTheUnit() {
+        #expect(Currency(feedCode: "USD") == .usd)
+        #expect(Currency(feedCode: "JPY") == .jpy)
+        #expect(Currency(feedCode: " vnd ") == .vnd)
+        // No rate for these, so "unusable" and "unstated" collapse to one answer and one branch.
+        #expect(Currency(feedCode: "EUR") == nil)
+        #expect(Currency(feedCode: "") == nil)
+    }
+
+    @Test("The feed's own currency decides an unlisted world row, and the table never has to guess")
+    func unlistedWorldRowUsesTheFeedsAnswer() throws {
+        let entries = [held("AAPL", .world, qty: 100, cost: 200),
+                       held("7203.T", .world, qty: 100, cost: 2_000)]
+        let quotes = Dictionary(uniqueKeysWithValues: [
+            quote("AAPL", .world, 313, currency: .usd),
+            quote("7203.T", .world, 2_980, currency: .jpy),
+            quote("USDVND", .vietnam, 25_000),
+        ])
+        let total = try #require(Portfolio.total(for: entries, quotes: quotes))
+        // Apple converts; Toyota is named as yen by the response its price arrived in, and is excluded.
+        // Counting it as dollars would have added 7,450,000,000 VND to a 783,250,000 portfolio.
+        #expect(total.value == 100 * 313 * 25_000)
+        #expect(total.excluded == 1)
+
+        // And with no word from the feed there is nothing left to go on, so it is excluded rather than
+        // assumed — the table has never heard of either symbol.
+        let silent = Dictionary(uniqueKeysWithValues: [
+            quote("AAPL", .world, 313),
+            quote("USDVND", .vietnam, 25_000),
+        ])
+        #expect(Portfolio.total(for: [entries[0]], quotes: silent) == nil)
     }
 
     @Test("Dong and dollars add up through the panel's own USDVND")
@@ -145,5 +191,56 @@ struct PortfolioTests {
         let partial = Portfolio.total(for: noCost, quotes: quotes)
         #expect(partial?.value == 6_000_000)
         #expect(partial?.profitPercent == nil)
+    }
+
+    @Test("A position with no cost is worth something and has made nothing measurable")
+    func costlessPositionStaysOutOfTheReturn() throws {
+        // The case the test above could not see, because there every position lacked a basis and the
+        // `cost > 0` guard covered for it. MIX one basis-less row with one real one and the guard stops
+        // firing: the whole 144,000,000 landed in `profit` and the panel drew ▲ +308.00% in green on a
+        // portfolio that had made ten million.
+        let entries = [held("VCB", .vietnam, qty: 1_000, cost: 50_000),
+                       held("SJC", .vietnam, qty: 1, cost: 0)]
+        let quotes = Dictionary(uniqueKeysWithValues: [
+            quote("VCB", .vietnam, 60_000),
+            quote("SJC", .vietnam, 144_000_000),
+        ])
+        let total = try #require(Portfolio.total(for: entries, quotes: quotes))
+
+        // Both are owned, so both are worth something and both are in the total.
+        #expect(total.value == 204_000_000)
+        #expect(total.excluded == 0)
+        // Only one of them can be judged, so only one is in the return — the truth the app already knew
+        // one level down, where Holding.profit returns nil for exactly this position.
+        #expect(total.measured == 60_000_000)
+        #expect(total.cost == 50_000_000)
+        #expect(total.profit == 10_000_000)
+        #expect(abs(try #require(total.profitPercent) - 20) < 0.001)
+        // And it says so, because a percentage covering part of a portfolio without a word looks exactly
+        // like one covering all of it.
+        #expect(total.withoutBasis == 1)
+
+        // The same portfolio in the other order is the same portfolio. Worth pinning because the two
+        // accumulators are stepped inside one loop, and a version that assigned `measured` from the running
+        // `value` instead of adding to it agreed with this test exactly as long as the basis-less row
+        // happened to come last — which is a property of the watchlist, not of the arithmetic.
+        let reversed = try #require(Portfolio.total(for: entries.reversed(), quotes: quotes))
+        #expect(reversed.value == total.value)
+        #expect(reversed.measured == total.measured)
+        #expect(reversed.profit == total.profit)
+    }
+
+    @Test("A held row whose price has not arrived is counted, not quietly dropped")
+    func unpricedPositionIsCounted() throws {
+        let entries = [held("VCB", .vietnam, qty: 1_000, cost: 50_000),
+                       held("FPT", .vietnam, qty: 500, cost: 100_000)]
+        // FPT's quote is missing — a feed failing, or a symbol nobody answers for. The total is short by a
+        // real position, and silence would present the remainder as the whole.
+        let quotes = Dictionary(uniqueKeysWithValues: [quote("VCB", .vietnam, 60_000)])
+        let total = try #require(Portfolio.total(for: entries, quotes: quotes))
+        #expect(total.value == 60_000_000)
+        #expect(total.unpriced == 1)
+        #expect(total.excluded == 0)
+        #expect(total.withoutBasis == 0)
     }
 }

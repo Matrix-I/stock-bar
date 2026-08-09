@@ -44,6 +44,18 @@ extension Market {
     /// which is the very bug this is here to fix.
     private static let cryptoQuoteAssets = ["USDT", "USDC", "FDUSD", "BUSD", "TUSD"]
 
+    /// Whether a pair is quoted in one of those stablecoins.
+    ///
+    /// Asked twice, and deliberately by the same predicate both times: once to file a typed symbol under
+    /// `.crypto`, and once to name that row's unit for the portfolio total. A pair this app will not
+    /// classify from its ticker is also a pair whose price it must not add to anything — ETHBTC is priced
+    /// in bitcoin, and counting it as dollars is the same shape of error as counting the Nikkei in them.
+    static func isStablecoinQuoted(_ symbol: String) -> Bool {
+        let upper = symbol.uppercased()
+        // `count >` and not `>=`: a bare quote asset typed on its own is not a pair.
+        return cryptoQuoteAssets.contains { upper.hasSuffix($0) && upper.count > $0.count }
+    }
+
     /// The market a symbol *must* belong to, judged from the ticker alone; nil when the ticker says
     /// nothing and the caller's own choice should stand.
     ///
@@ -53,10 +65,7 @@ extension Market {
     /// dash forever, with no hint that the market — not the feed — was the problem.
     static func inferred(for symbol: String) -> Market? {
         let upper = symbol.uppercased()
-        // `count >` and not `>=`: a bare quote asset typed on its own is not a pair.
-        if cryptoQuoteAssets.contains(where: { upper.hasSuffix($0) && upper.count > $0.count }) {
-            return .crypto
-        }
+        if isStablecoinQuoted(upper) { return .crypto }
         // A named world instrument can only be served by one feed, and none of these names is a ticker on
         // the Vietnamese board — checked against it, including the three-letter DJI, DXY and XAU, before
         // adding them.
@@ -76,6 +85,13 @@ extension Market {
 /// The Nikkei is why this is not simply "VN is dong and everything else is dollars": it prints in YEN, at
 /// around 61,000, so folding it into a dollar total would be a 150-fold error that still renders as a
 /// plausible number. `Currency` is the type that makes that mistake impossible to make silently.
+///
+/// WHICH IS WHY `of` RETURNS nil RATHER THAN GUESSING. It first shipped defaulting the unknown case to
+/// dollars, and that default reopened the very hole the type was cut to close: `.world` is not a table of
+/// five indices but a bucket served by Yahoo, which forwards any ticker it knows and quotes each listing in
+/// that listing's OWN currency. Type 7203.T and you get Toyota at 2,980 — yen, arriving through the exact
+/// code path whose comment promises the yen mistake cannot happen. nil is a real answer here, and every
+/// caller has to treat it as "leave this row out and say so".
 enum Currency: String, Sendable, Equatable, CaseIterable {
     case vnd
     case usd
@@ -83,17 +99,29 @@ enum Currency: String, Sendable, Equatable, CaseIterable {
     /// yen rate, and inventing one is worse than leaving the row out of a total and saying so.
     case jpy
 
-    /// The currency a row's `Quote.price` is in.
-    static func of(symbol: String, market: Market) -> Currency {
+    /// The currency a row's `Quote.price` is in, judged from the ticker alone; nil when this app has no
+    /// grounds to name it. See the type's header — nil is the answer, not the absence of one.
+    static func of(symbol: String, market: Market) -> Currency? {
         switch market {
         // Every Vietnamese row — the board, the gold bar, the dollar rate, the gap — prints dong.
         case .vietnam: return .vnd
-        // USDT, treated as a dollar. It is a peg and not an identity, and the panel says so where the
-        // total is drawn; at the tenth of a percent it holds to, naming it would cost more attention
-        // than it saves.
-        case .crypto:  return .usd
-        case .world:   return WorldIndex.listing(for: symbol)?.currency ?? .usd
+        // A stablecoin pair is treated as dollars. USDT is a peg and not an identity, and the panel says
+        // so where the total is drawn; at the tenth of a percent it holds to, naming it would cost more
+        // attention than it saves. A coin-quoted pair is a different matter: ETHBTC prints in bitcoin, so
+        // the app declines rather than reading three-hundredths of a coin as three cents.
+        case .crypto:  return Market.isStablecoinQuoted(symbol) ? .usd : nil
+        // Only the table speaks for a world row. An unlisted one may still be nameable — by the feed, in
+        // `Quote.currency`, which is the one source that cannot disagree with the price it arrived with.
+        case .world:   return WorldIndex.listing(for: symbol)?.currency
         }
+    }
+
+    /// The currency an upstream named, as the upstream spells it (Yahoo's `meta.currency`: "USD", "JPY").
+    ///
+    /// nil for any currency this app holds no rate for — EUR and KRW are as unusable here as no answer at
+    /// all, and collapsing the two means one branch downstream instead of two saying the same thing.
+    init?(feedCode: String) {
+        self.init(rawValue: feedCode.trimmingCharacters(in: .whitespaces).lowercased())
     }
 }
 

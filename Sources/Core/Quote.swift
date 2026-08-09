@@ -90,6 +90,17 @@ struct Quote: Sendable, Identifiable {
     let ask: Double?
     let askSize: Double?
 
+    /// What `price` is denominated in, WHEN THE FEED ITSELF SAID SO — nil where the upstream publishes no
+    /// currency, which is most of them.
+    ///
+    /// Carried because the portfolio total is the one place in this app that adds two rows together, and
+    /// the only unimpeachable statement of a row's unit is the response the price came in. Yahoo serves any
+    /// listing it knows in that listing's own currency, so a `.world` symbol outside `WorldIndex.all` has a
+    /// unit nothing else here could name: the table has never heard of it, and the ticker does not say.
+    /// A feed that stays quiet leaves this nil and the answer falls back to `Currency.of`, which speaks
+    /// only for rows it has an entry for and otherwise declines.
+    let currency: Currency?
+
     /// Memberwise, with the enrichment fields defaulted. Written out because the synthesised initialiser
     /// would demand all of them at every call site, and each source has only some of them to give.
     init(symbol: String, market: Market, price: Double, reference: Double?,
@@ -97,7 +108,8 @@ struct Quote: Sendable, Identifiable {
          high: Double? = nil, low: Double? = nil,
          average: Double? = nil, foreignNet: Double? = nil, foreignRoom: Double? = nil,
          bid: Double? = nil, bidSize: Double? = nil,
-         ask: Double? = nil, askSize: Double? = nil) {
+         ask: Double? = nil, askSize: Double? = nil,
+         currency: Currency? = nil) {
         self.symbol = symbol
         self.market = market
         self.price = price
@@ -115,6 +127,7 @@ struct Quote: Sendable, Identifiable {
         self.bidSize = bidSize
         self.ask = ask
         self.askSize = askSize
+        self.currency = currency
     }
 
     /// Absolute move against `reference`. nil when no reference is available, in which case the view

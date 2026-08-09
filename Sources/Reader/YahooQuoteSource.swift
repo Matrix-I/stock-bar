@@ -24,6 +24,11 @@
 // the table has never heard of. Only the listed ones are advertised, because only they have a venue here,
 // and without one the session gate can only guess.
 //
+// AND EACH LISTING COMES BACK IN ITS OWN CURRENCY, which is why `meta.currency` is read and carried. The
+// fallback above means an unlisted symbol can be anything Yahoo carries, and 7203.T answers in yen at 2,980
+// through the same path that serves AAPL in dollars. Nothing downstream could tell those apart from the
+// ticker, so the one place that adds rows together got the answer from here instead.
+//
 // The mapped symbols are not all alphanumeric: `DX-Y.NYB` carries `-` and `.`, and the encoding below
 // percent-escapes both. Yahoo decodes the path segment before routing, so `DX%2DY%2ENYB` answers 200 —
 // checked live, because a 404 here is indistinguishable from a delisted symbol.
@@ -97,7 +102,13 @@ struct YahooQuoteSource: QuoteSource {
             // the panel able to say a Tokyo row was last updated at 15:45 JST rather than "just now".
             asOf: chart.asOf ?? Date(),
             high: chart.high,
-            low: chart.low
+            low: chart.low,
+            // The feed's own word on what it just quoted. This endpoint takes any ticker it knows and
+            // prices each listing in that listing's currency — 7203.T comes back at 2,980 JPY — so for
+            // every symbol outside `WorldIndex.all` this field is the only thing standing between a
+            // portfolio total and a hundred-fold error that renders perfectly. Checked live against
+            // 7203.T (JPY), ^N225 (JPY), AAPL (USD) and ^DJI (USD).
+            currency: chart.currency
         )
     }
 
@@ -110,6 +121,7 @@ struct YahooQuoteSource: QuoteSource {
         let high: Double?
         let low: Double?
         let closes: [Double]
+        let currency: Currency?
     }
 
     private func chart(_ symbol: String) async throws -> Chart {
@@ -144,7 +156,8 @@ struct YahooQuoteSource: QuoteSource {
             asOf: HTTP.num(meta["regularMarketTime"]).map { Date(timeIntervalSince1970: $0) },
             high: HTTP.num(meta["regularMarketDayHigh"]),
             low: HTTP.num(meta["regularMarketDayLow"]),
-            closes: Self.closes(from: result)
+            closes: Self.closes(from: result),
+            currency: (meta["currency"] as? String).flatMap(Currency.init(feedCode:))
         )
     }
 
