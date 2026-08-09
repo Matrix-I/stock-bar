@@ -128,7 +128,13 @@ where it used to be) makes the gesture fail on the biggest target in the row.
   property rather than at the three call sites, so a row cannot draw a fetched chart in one place and a
   recorded one in another. The recorder keeps a point only when the price CHANGES — a rate sheet polled
   all day is hundreds of readings of four values, and storing observations instead of changes fills the
-  buffer with a flat line.
+  buffer with a flat line. **And never more than one point per half hour**, because that change filter is
+  no filter at all for `GOLDGAP`: it is arithmetic over a world spot price that moves every minute, so it
+  differs at every poll, filled the whole buffer in about two hours and rewrote the stored blob sixty times
+  an hour doing it. The floor is measured on `PriceLog.lastObserved` — **when the app looked** — and not on
+  the point's own stamp, because `GOLDGAP.asOf` is the oldest of its three inputs and therefore PNJ's
+  publication time, which stands still all afternoon while the gap moves; spacing by that records one point
+  a day and calls it a chart. Two clocks in one function is the thing to preserve here.
 - **`VPSQuoteSource` has two board paths and they differ on purpose.** `fetchQuotes` drops a stock whose
   `lastPrice` is 0 (a watched row must never render as `0` and −100%); `fetchBoardRows` keeps it, because
   breadth must count an untraded stock or the denominator every ratio is measured against silently shrinks.
@@ -141,6 +147,23 @@ where it used to be) makes the gesture fail on the biggest target in the row.
   convert AND counts the exclusions, because a total quietly missing a position reads as a complete
   answer. It converts through the `USDVND` row the panel draws, never a private rate, and inherits the age
   of its stalest input including that rate.
+- **`Currency.of` returns nil, and the feed outranks it.** It first shipped defaulting the unknown case to
+  `.usd`, which reopened the exact hole the type was cut to close: `.world` is not a table of five indices
+  but a bucket served by Yahoo, which forwards any ticker it knows and prices each listing in that
+  listing's own currency, so `7203.T` arrives at 2,980 **yen** through the very code path whose comment
+  promises the yen mistake cannot happen. Hence `Quote.currency`, read from `meta.currency` — the one
+  statement of a row's unit that cannot disagree with the price it came in — with the table as fallback
+  and nil meaning *leave this row out and say so*. The same rule downgrades crypto: only a stablecoin-quoted
+  pair is dollars, because ETHBTC prints in bitcoin. Adding a market or a feed without answering "what is
+  this priced in, and who says so" is the regression to watch for.
+- **Three separate ways a held row misses the total, and all three are drawn.** Unconvertible currency
+  (`excluded`), quote not arrived (`unpriced`), and no average cost typed (`withoutBasis`). The third is
+  the subtle one: its value is known and belongs in `value`, its return is not and must stay out of
+  `measured`/`cost`. `Portfolio` therefore carries **two** value figures, and `profit` is `measured - cost`
+  and never `value - cost` — the latter reported a basis-less position's entire market value as profit, and
+  the `cost > 0` guard did not catch it because that guard only fires when NO position has a basis. One
+  unfilled row mixed with one real one drew ▲ +308.00% in green. Note the shape of the test that missed it:
+  it only ever checked the all-zero case, and the mixed case is where the guard stops covering.
 - **A holding refuses to answer more often than it answers.** `Core/Holding.swift` returns nil for both
   profit figures unless quantity AND average cost are positive: with a basis of zero the profit equals the
   whole market value, which renders as an enormous gain on a position whose cost has simply not been typed
