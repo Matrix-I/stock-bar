@@ -32,9 +32,12 @@ final class PriceLogStore: ObservableObject {
     /// The write is gated on the return value rather than done unconditionally: a board that has not
     /// changed since this morning is the normal case, and re-encoding the whole blob once a minute for it
     /// would be the app's most pointless piece of disk traffic.
-    func record(_ entries: [WatchedSymbol], quotes: [String: Quote]) {
+    /// `now` is the observing clock the spacing floor is measured on, defaulted here because this is the
+    /// layer allowed to read a clock at all — Core is handed one. `Tools/uisnap` passes its own, which is
+    /// what lets a seeded series be laid down across simulated days in one run.
+    func record(_ entries: [WatchedSymbol], quotes: [String: Quote], now: Date = Date()) {
         var next = logs
-        let changed = next.record(entries, quotes: quotes)
+        let changed = next.record(entries, quotes: quotes, now: now)
         guard changed else { return }
         logs = next
         save()

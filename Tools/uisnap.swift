@@ -64,10 +64,16 @@ struct UISnap {
         // nothing, which is the shipped default and everything a snapshot tool can otherwise produce.
         if ProcessInfo.processInfo.environment["STOCKBAR_UI_TOTAL"] != nil {
             watchlist.add("USDVND", market: .vietnam)
-            for (symbol, qty, cost) in [("VCB", 1_200.0, 58_400.0), ("BTCUSDT", 0.5, 60_000.0)] {
+            // NI225 is held so the yen exclusion is drawn, and SJC is held with a quantity but NO cost so
+            // the row that stands outside the return is drawn. Both notes are unreachable otherwise, and
+            // both are the whole point of the summary: they are what it says when it cannot say everything.
+            watchlist.add("NI225", market: .world)
+            watchlist.add("SJC", market: .vietnam)
+            for (symbol, qty, cost) in [("VCB", 1_200.0, 58_400.0), ("BTCUSDT", 0.5, 60_000.0),
+                                        ("NI225", 3.0, 60_000.0), ("SJC", 2.0, 0.0)] {
                 guard let entry = watchlist.symbols.first(where: { $0.symbol == symbol }) else { continue }
                 watchlist.setHoldingQuantity(entry, qty)
-                watchlist.setHoldingCost(entry, cost)
+                if cost > 0 { watchlist.setHoldingCost(entry, cost) }
             }
         }
         // STOCKBAR_UI_ALERT=VCB:60000 puts a threshold on a row, because the bell indicator and the filled
@@ -85,15 +91,28 @@ struct UISnap {
         // only after the app has watched them change over days, which a snapshot run has not — so the
         // points are pushed through the real recorder rather than injected past it, and the PNG proves
         // the merge in QuoteReader.history rather than a fixture.
-        let priceLogs = PriceLogStore()
+        //
+        // Its own defaults suite, wiped first. Both matter and both were missing. A price log persists like
+        // any other, so a second run appended the seed to the first run's copy and the "twelve-day" series
+        // quietly became a twenty-four-day one — uisnap's whole value is that two runs of one command
+        // produce the same PNG. And the suite keeps the seed out of the domain the real app reads.
+        let suiteName = "uisnap.pricelogs"
+        UserDefaults.standard.removePersistentDomain(forName: suiteName)
+        let priceLogs = PriceLogStore(defaults: UserDefaults(suiteName: suiteName) ?? .standard)
         if ProcessInfo.processInfo.environment["STOCKBAR_UI_LOG"] != nil {
+            // Watched as well as seeded: QuoteReader prunes every log whose row has left the watchlist, so
+            // a seed for a symbol nobody is watching is deleted on the first poll and the PNG renders the
+            // shipped four rows as if the feature did not exist.
+            watchlist.add("SJC", market: .vietnam)
             let sjc = WatchedSymbol(symbol: "SJC", market: .vietnam, pinnedToMenuBar: false)
             var when = Date().addingTimeInterval(-12 * 86400)
             for price in [138_500_000.0, 139_200_000, 138_900_000, 140_100_000, 141_800_000,
                           141_200_000, 142_600_000, 143_400_000, 143_100_000, 144_000_000] {
+                // `now: when` and not the wall clock: the recorder spaces points by when it was told it
+                // looked, and ten records inside one real second would collapse to a single point.
                 priceLogs.record([sjc], quotes: ["vietnam:SJC": Quote(
                     symbol: "SJC", market: .vietnam, price: price, reference: nil,
-                    ceiling: nil, floor: nil, volume: nil, asOf: when)])
+                    ceiling: nil, floor: nil, volume: nil, asOf: when)], now: when)
                 when = when.addingTimeInterval(86400)
             }
         }
