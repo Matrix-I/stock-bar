@@ -1,0 +1,241 @@
+// VPSQuoteSource.swift — Vietnamese equities and indices, from VPS's two public market-data backends.
+// These are the JSON services behind VPS's own web board; they are community-known rather than
+// formally documented, need no key, and were probed live before this was written.
+//
+// TWO endpoints, because neither alone covers both instrument kinds:
+//
+//   1. Equities — https://bgapidatafeed.vps.com.vn/getliststockdata/VCB,FPT,HPG
+//      One request returns EVERY requested ticker, which is why this is the primary: N tickers cost
+//      one request, so the whole watchlist refreshes within a single call. Fields used:
+//        sym       ticker                  lastPrice  last matched price
+//        r         reference (tham chiếu)  c          ceiling (trần)      f  floor (sàn)
+//        lot       session volume
+//      Indices are NOT served here — getliststockdata/VNINDEX returns [].
+//
+//   2. Indices — https://histdatafeed.vps.com.vn/tradingview/history?symbol=VNINDEX&resolution=1
+//      A TradingView UDF feed: {s:"ok", t:[epoch], o:[], h:[], l:[], c:[], v:[]}. resolution=1 is
+//      1-minute bars, so the last element is the live value AND the whole `c` array is the intraday
+//      sparkline — one request serves both, which is why indices don't need a second call per tick.
+//      The previous session's close (the reference the change is measured against) comes from the
+//      same endpoint at resolution=1D and is cached for the day, since it only changes overnight.
+//
+// PRICE SCALING — verified against both endpoints on 2026-07-29:
+//   • Equity prices come in THOUSANDS of VND: VCB reads 54.6, meaning 54,600 VND. Ceiling, floor and
+//     reference use the same unit. We multiply by 1000 on the way in so `Quote.price` is always real
+//     VND, and PriceFormat renders it. Getting this wrong is a 1000× error on screen.
+//   • Index values are already points (VN-Index 1704.68) and must NOT be scaled.
+// `lot`/`v` are share counts and are never scaled.
+
+import Foundation
+
+/// An actor, not a struct, because the daily reference prices for indices are cached across calls and
+/// that cache is touched from whichever task the refresh runs on.
+actor VPSQuoteSource: QuoteSource {
+
+    private static let boardBase = "https://bgapidatafeed.vps.com.vn/getliststockdata/"
+    private static let histBase = "https://histdatafeed.vps.com.vn/tradingview/history"
+
+    /// How far back to ask for 1-minute bars. NOT "long enough to cover today's session" — that was a
+    /// bug: an 8-hour window measured from *now* slides off the end of the session, so after ~23:00 ICT
+    /// it contained no bars at all and every index silently lost its quote (which then dropped it from
+    /// the menu bar entirely). It has to be long enough to still contain a whole session when the last
+    /// one was days ago: a weekend plus a couple of public holidays. The bars for the most recent
+    /// session are then selected from whatever comes back, so the extra span costs a bigger response,
+    /// never a wrong reading.
+    private static let intradayWindow: TimeInterval = 7 * 86400
+    /// Daily bars are only needed for the reference close, so a month is ample even across Tết.
+    private static let dailyWindow: TimeInterval = 30 * 86400
+
+    /// ICT. HOSE runs on it and Vietnam has no DST, so a fixed offset is exact — but the identifier is
+    /// used where available so a reader isn't left wondering whether the offset is right.
+    private static let ict = TimeZone(identifier: "Asia/Ho_Chi_Minh") ?? TimeZone(secondsFromGMT: 7 * 3600)!
+    private static var ictCalendar: Calendar {
+        var c = Calendar(identifier: .gregorian)
+        c.timeZone = ict
+        return c
+    }
+
+    /// Daily bars per index symbol, with the ICT day they were fetched for. Refetched when the day rolls
+    /// over: daily bars only change once a session, so caching turns two requests per index per minute
+    /// into one.
+    private var dailyCache: [String: (day: Int, bars: Bars)] = [:]
+
+    // MARK: - QuoteSource
+
+    func fetchQuotes(for symbols: [String]) async throws -> [Quote] {
+        let indices = symbols.filter { Ticker.isIndex($0) }
+        let equities = symbols.filter { !Ticker.isIndex($0) }
+
+        // Run the (single) board request and the per-index requests concurrently — the indices are
+        // independent of each other and of the board, so there's no reason to serialise them.
+        async let equityQuotes = equities.isEmpty ? [] : fetchBoard(equities)
+        let indexQuotes = try await withThrowingTaskGroup(of: Quote?.self) { group in
+            for symbol in indices {
+                group.addTask { try? await self.fetchIndex(symbol) }
+            }
+            var out: [Quote] = []
+            for try await q in group { if let q { out.append(q) } }
+            return out
+        }
+        return try await equityQuotes + indexQuotes
+    }
+
+    func fetchHistory(for symbol: String) async throws -> [Double] {
+        // Ask for a week of 1-minute bars, then keep only the most recent session's. The sparkline still
+        // shows one session's shape rather than a week of noise, but it is the last session that actually
+        // traded — so it doesn't go blank overnight, at a weekend, or over Tết.
+        let closes = try await bars(symbol: symbol, resolution: "1", secondsBack: Self.intradayWindow)
+            .lastSession().closes
+        let scale = Ticker.isIndex(symbol) ? 1.0 : 1000.0
+        return closes.map { $0 * scale }
+    }
+
+    // MARK: - Equities
+
+    private func fetchBoard(_ symbols: [String]) async throws -> [Quote] {
+        // The path segment is a comma-separated ticker list. Tickers are A-Z/0-9 only, so no escaping
+        // is needed beyond the join; we uppercase because the endpoint is case-sensitive and returns
+        // [] for lowercase input.
+        let list = symbols.map { $0.uppercased() }.joined(separator: ",")
+        guard let url = URL(string: Self.boardBase + list) else { throw QuoteError.malformed("board URL") }
+
+        guard let rows = try await HTTP.json(url) as? [[String: Any]] else {
+            throw QuoteError.malformed("board: expected a JSON array")
+        }
+
+        let now = Date()
+        return rows.compactMap { row -> Quote? in
+            guard let sym = row["sym"] as? String,
+                  let last = HTTP.num(row["lastPrice"]), last > 0
+            else { return nil }
+
+            // A stock that hasn't traded yet today reports lastPrice 0; the reference is then the only
+            // meaningful number, so fall back to it rather than dropping the row (a watched ticker
+            // vanishing from the list looks like a bug).
+            let ref = HTTP.num(row["r"])
+            return Quote(
+                symbol: sym.uppercased(),
+                market: .vietnam,
+                price: last * 1000,
+                reference: ref.map { $0 * 1000 },
+                ceiling: HTTP.num(row["c"]).map { $0 * 1000 },
+                floor: HTTP.num(row["f"]).map { $0 * 1000 },
+                volume: HTTP.num(row["lot"]),
+                asOf: now
+            )
+        }
+    }
+
+    // MARK: - Indices
+
+    private func fetchIndex(_ symbol: String) async throws -> Quote {
+        // The daily series is needed for the reference close, and doubles as the price source when the
+        // intraday feed returns nothing for the window — so an index keeps a quote even if the 1-minute
+        // feed is briefly unavailable, instead of disappearing from the menu bar.
+        let daily = try await dailySeries(symbol)
+        let session = (try? await bars(symbol: symbol,
+                                       resolution: "1",
+                                       secondsBack: Self.intradayWindow))?.lastSession()
+
+        guard let priceBar = session?.last ?? daily.last else { throw QuoteError.noData(symbol) }
+
+        return Quote(
+            symbol: symbol.uppercased(),
+            market: .vietnam,
+            price: priceBar.close,
+            reference: referenceClose(from: daily, pricedAt: priceBar.time),
+            ceiling: nil,           // an index has no daily band
+            floor: nil,
+            volume: session?.totalVolume ?? priceBar.volume,
+            asOf: priceBar.time
+        )
+    }
+
+    /// The daily bars, cached for the ICT day. They only change once a session.
+    private func dailySeries(_ symbol: String) async throws -> Bars {
+        let today = Self.ictCalendar.ordinality(of: .day, in: .era, for: Date()) ?? 0
+        if let hit = dailyCache[symbol], hit.day == today { return hit.bars }
+        let fetched = try await bars(symbol: symbol, resolution: "1D", secondsBack: Self.dailyWindow)
+        dailyCache[symbol] = (today, fetched)
+        return fetched
+    }
+
+    /// The close the change is measured against: the last daily bar from a session BEFORE the one the
+    /// price belongs to.
+    ///
+    /// Selecting by date rather than by "second to last" is what makes this right at every hour. Taking
+    /// `count - 2` assumes the final daily bar is the priced session's own — true intraday, but wrong
+    /// before the open, at a weekend, or whenever the daily feed hasn't published today's bar yet, and
+    /// each of those cases silently compares against the wrong day and prints a wrong percentage.
+    private func referenceClose(from daily: Bars, pricedAt priceTime: Date) -> Double? {
+        let cal = Self.ictCalendar
+        return daily.bars.last { !cal.isDate($0.time, inSameDayAs: priceTime) && $0.time < priceTime }?.close
+    }
+
+    // MARK: - TradingView UDF history
+
+    /// A parsed slice of the UDF feed.
+    ///
+    /// Stored as one array of (time, close, volume) triples rather than three parallel arrays: the feed
+    /// can carry a null in one series and not the others, and three independent compactMaps would then
+    /// shift the closes against the times — attributing a price to the wrong minute, with nothing to
+    /// signal it had happened.
+    private struct Bars {
+        struct Bar {
+            let time: Date
+            let close: Double
+            let volume: Double
+        }
+        let bars: [Bar]
+
+        var closes: [Double] { bars.map(\.close) }
+        var last: Bar? { bars.last }
+        var totalVolume: Double { bars.reduce(0) { $0 + $1.volume } }
+
+        /// The bars sharing the final bar's ICT calendar day — i.e. the most recent trading session,
+        /// whether that turns out to be today or last Friday.
+        func lastSession() -> Bars {
+            guard let end = bars.last else { return self }
+            let cal = VPSQuoteSource.ictCalendar
+            return Bars(bars: bars.filter { cal.isDate($0.time, inSameDayAs: end.time) })
+        }
+    }
+
+    private func bars(symbol: String, resolution: String, secondsBack: TimeInterval) async throws -> Bars {
+        let to = Int(Date().timeIntervalSince1970)
+        let from = to - Int(secondsBack)
+        var c = URLComponents(string: Self.histBase)!
+        c.queryItems = [
+            .init(name: "symbol", value: symbol.uppercased()),
+            .init(name: "resolution", value: resolution),
+            .init(name: "from", value: String(from)),
+            .init(name: "to", value: String(to)),
+        ]
+        guard let url = c.url else { throw QuoteError.malformed("history URL") }
+
+        guard let root = try await HTTP.json(url) as? [String: Any] else {
+            throw QuoteError.malformed("history: expected a JSON object")
+        }
+        // The feed answers `s:"no_data"` (with empty arrays) for an unknown symbol rather than a 404 —
+        // e.g. UPINDEX, which it doesn't carry. Treat that as "no data", not as a transport error, so
+        // the UI can say "unknown symbol" instead of "network failed".
+        guard let status = root["s"] as? String else { throw QuoteError.malformed("history: no status") }
+        guard status == "ok" else { throw QuoteError.noData(symbol) }
+
+        // Zip the series by index so a bar is only kept when it has both a timestamp and a close.
+        let rawTimes = root["t"] as? [Any] ?? []
+        let rawCloses = root["c"] as? [Any] ?? []
+        let rawVolumes = root["v"] as? [Any] ?? []
+
+        var parsed: [Bars.Bar] = []
+        parsed.reserveCapacity(min(rawTimes.count, rawCloses.count))
+        for i in 0..<min(rawTimes.count, rawCloses.count) {
+            guard let t = HTTP.num(rawTimes[i]), let c = HTTP.num(rawCloses[i]) else { continue }
+            let v = i < rawVolumes.count ? (HTTP.num(rawVolumes[i]) ?? 0) : 0
+            parsed.append(Bars.Bar(time: Date(timeIntervalSince1970: t), close: c, volume: v))
+        }
+        guard !parsed.isEmpty else { throw QuoteError.noData(symbol) }
+
+        return Bars(bars: parsed)
+    }
+}

@@ -53,8 +53,16 @@ struct Probe {
 
         var quotes: [Quote] = []
 
+        // The tracked list, exactly as QuoteReader plans it: asking for GOLDGAP alone has to pull in the
+        // three rows it is computed from, or the probe would report "no data" for a row that works.
+        let tracked = DerivedQuote.tracked(requested.map {
+            WatchedSymbol(symbol: $0.0, market: $0.1, pinnedToMenuBar: false)
+        })
+
         for market in Market.allCases {
-            let symbols = requested.filter { $0.1 == market }.map(\.0)
+            let symbols = tracked
+                .filter { $0.market == market && !DerivedQuote.isDerived($0.symbol) }
+                .map(\.symbol)
             guard !symbols.isEmpty else { continue }
             let label = market.shortLabel.padding(toLength: 6, withPad: " ", startingAt: 0)
             do {
@@ -69,6 +77,12 @@ struct Probe {
                 print("\(label) ✗ \(error.localizedDescription)")
             }
         }
+
+        // The computed rows, from the fetched ones, keyed the way the reader keys them. Done here rather
+        // than left to the panel so the arithmetic is checkable against the inputs printed just below it.
+        var byID: [String: Quote] = [:]
+        for q in quotes { byID["\(q.market.rawValue):\(q.symbol.uppercased())"] = q }
+        quotes += DerivedQuote.values(for: tracked, from: byID).values
 
         print(String(repeating: "─", count: 78))
         print(row("SYMBOL", "PRICE", "REF", "CHANGE", "BAND", "MENU BAR"))
@@ -104,7 +118,11 @@ struct Probe {
         // own pe/pb are deliberately NOT what the card shows (see Core/Fundamentals.swift).
         let fundamentalsFeed = FundamentalsSource()
         print(String(repeating: "─", count: 78))
-        for (symbol, market) in requested where market == .vietnam && !Ticker.isIndex(symbol) {
+        // The same predicate the reader uses, so the probe cannot ask for a figure the app never would.
+        // SSI answers for "SJC" with numbers belonging to some other company entirely, which is exactly
+        // what `hasPerShareFundamentals` exists to keep off a gold row.
+        for (symbol, market) in requested
+        where WatchedSymbol(symbol: symbol, market: market, pinnedToMenuBar: false).hasPerShareFundamentals {
             do {
                 let f = try await fundamentalsFeed.fetch(for: symbol)
                 guard !f.isEmpty else { print("fundamentals \(symbol): none reported"); continue }

@@ -28,6 +28,9 @@ struct WatchedSymbol: Codable, Sendable, Hashable, Identifiable {
         case "HNXINDEX": return "HNX"
         case "BTCUSDT":  return "BTC"
         case "ETHUSDT":  return "ETH"
+        // The gold gap's number is seven digits wide, so its ticker cannot also be seven characters —
+        // between them they would take more menu bar than the rest of the watchlist put together.
+        case "GOLDGAP":  return "GAP"
         default:
             // Crypto pairs are stored with their quote currency ("SOLUSDT"); the menu bar only has
             // room for the base asset, and USDT is the only quote currency this app requests.
@@ -42,7 +45,11 @@ struct WatchedSymbol: Codable, Sendable, Hashable, Identifiable {
     var venueLabel: String {
         switch market {
         case .crypto:  return "Binance"
-        case .vietnam: return Ticker.isIndex(symbol) ? "Index" : "HOSE"
+        // The domestic rows first: they are on `.vietnam` but not on the board, and "HOSE" under a gold
+        // price would name an exchange that has never quoted it.
+        case .vietnam:
+            if let listing = DomesticIndex.listing(for: symbol) { return listing.venue.label }
+            return Ticker.isIndex(symbol) ? "Index" : "HOSE"
         // The exchange, not "Index": nearly every world row IS one, so the word would distinguish almost
         // nothing, while the venue says which clock the row is on — the answer to why the Dow sat still all
         // morning. For GOLD it carries a second meaning, and the more important one: "Spot" says the number
@@ -52,4 +59,11 @@ struct WatchedSymbol: Codable, Sendable, Hashable, Identifiable {
     }
 
     var isIndex: Bool { Ticker.isIndex(symbol) }
+
+    /// Whether a per-share fundamentals lookup means anything for this row. Only a listed Vietnamese
+    /// company has an EPS: an index has no shares, and neither does a gold bar, a dollar rate or the gap
+    /// between two of them — asking SSI about "SJC" would spend a request to be told nothing.
+    var hasPerShareFundamentals: Bool {
+        market == .vietnam && !isIndex && !DomesticIndex.isDomestic(symbol)
+    }
 }

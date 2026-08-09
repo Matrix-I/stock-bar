@@ -1,6 +1,7 @@
 // QuoteSource.swift — the contract every venue implementation satisfies, and the errors they raise.
 //
-// One implementation per venue (VNQuoteSource, CryptoQuoteSource); the shared HTTP plumbing they both use
+// One implementation per feed, behind a router per market where a market has several (VNQuoteSource,
+// WorldQuoteSource); the shared HTTP plumbing they all use
 // is in HTTPClient.swift.
 
 import Foundation

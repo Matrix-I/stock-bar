@@ -33,8 +33,8 @@ View  →  Store  →  Reader  →  Core          (System and Update sit off to 
   directory the tests compile**, and `run_tests.sh` greps it for violations and fails the run, so the rule
   is enforced rather than merely documented. A new file here needs no manifest edit — the target is the
   directory.
-- **`Reader`** — one type per feed, plus the shared `URLSession` and one router (`WorldQuoteSource`)
-  where a single market draws on several of them. Not every type here is a `QuoteSource`:
+- **`Reader`** — one type per feed, plus the shared `URLSession` and a router per market that draws on
+  several of them (`WorldQuoteSource`, `VNQuoteSource`). Not every type here is a `QuoteSource`:
   `InvestingBarSource` answers only for bars, and the missing conformance is what stops it being asked
   for a price. Nothing here holds published state.
 - **`Store`** — the two `ObservableObject`s the UI binds to (`QuoteReader`, `Watchlist`). Cadence,
@@ -116,6 +116,26 @@ where it used to be) makes the gesture fail on the biggest target in the row.
   Don't `cd` into it (that breaks codesign paths) and don't commit it.
 - **VN prices are real VND in the model.** The VPS board reports equities in thousands and indices in
   points; the scaling happens once, in `VNQuoteSource`. Getting it wrong is a 1000× error on screen.
+- **`.vietnam` is a bucket of venues too, and one of its rows is not fetched at all.** `VNQuoteSource` is a
+  router over `DomesticIndex.listing(for:)`: the VPS board serves the exchange rows, PNJ quotes the SJC gold
+  bar and Vietcombank the dollar. Anything unlisted goes to the board, never the other way — PNJ answers with
+  its own product list whatever it is asked, so a stray symbol sent there comes back with somebody else's
+  gold price rather than an honest miss. `GOLDGAP` is **derived**: `QuoteReader` computes it in `apply`, from
+  `lastGood` rather than from the batch just fetched, because its three inputs are on two different clocks and
+  most ticks refetch only some of them. A derived row pulls its inputs into the plan (`DerivedQuote.tracked`),
+  which is also what `apply`'s prune and `applyCadence` read — reading the visible list in either place drops
+  the inputs the moment they arrive, or idles the poll while they are still moving.
+- **Three constants stand between the gold gap and a plausible wrong number.** A lượng is 37.5 g, a troy
+  ounce 31.1034768 g, and PNJ quotes in thousands of dong per chỉ (ten to the lượng). Get any one wrong and
+  the gap is still a seven-figure VND number that renders without complaint — there is no appearance to check
+  it against, which is why `GoldUnit` is pinned by test and by mutant. Verify a new domestic feed's unit the
+  way this one was verified: convert the world price into it and check the plain 999.9 ring lands a few
+  percent above, not a hundredfold away.
+- **`.vietnam` no longer implies HOSE's clock.** The domestic boards keep shop hours (08:30–17:00, Mon–Sat,
+  no lunch break) and carry an eight-hour staleness allowance, and `Quote.isFromCurrentSession` exempts them
+  from the midnight rebase — applied to a row with no reference, that rebase manufactures the very flat
+  reading the missing reference exists to avoid. `WatchedSymbol.hasPerShareFundamentals` is the matching
+  guard on the other side: SSI answers for "SJC" with some other company's figures.
 - **`.world` is a bucket of venues AND of feeds, not one of either.** `Market` picks a source, but that
   source is now `WorldQuoteSource`, a router: Yahoo's chart endpoint serves the Dow, the Nasdaq, the Nikkei
   and the dollar index, while TradingView's scanner serves spot gold, because Yahoo carries no spot gold at

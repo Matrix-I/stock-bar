@@ -148,7 +148,9 @@ final class QuoteReader: ObservableObject {
     func isStale(_ id: String) -> Bool {
         guard let q = lastGood[id] else { return false }
         guard MarketHours.isOpen(q.market, symbol: q.symbol) else { return false }
-        let allowance = Self.activeInterval * 1.5 + WorldIndex.feedDelay(for: q.symbol)
+        let allowance = Self.activeInterval * 1.5
+            + WorldIndex.feedDelay(for: q.symbol)
+            + DomesticIndex.feedDelay(for: q.symbol)
         return Date().timeIntervalSince(q.asOf) > allowance
     }
 
@@ -184,6 +186,9 @@ final class QuoteReader: ObservableObject {
     func validate(_ symbol: String, market: Market) async -> SymbolCheck {
         let wanted = Ticker.canonical(symbol)
         guard !wanted.isEmpty else { return .unknown }
+        // A computed row has no venue to ask, and asking anyway would route it to a feed that has never
+        // heard of it and get back a "does not exist" for a row this app defines itself.
+        guard !DerivedQuote.isDerived(wanted) else { return .ok }
         let source = self.source(for: market)
         do {
             let quoted = try await source.fetchQuotes(for: [wanted])
@@ -222,9 +227,16 @@ final class QuoteReader: ObservableObject {
         // hoisting it means the Task captures a plain list instead of reaching back into self mid-flight.
         // One entry per market rather than three hand-written branches, so a fourth venue is a case in
         // `source(for:)` and nothing here.
+        //
+        // Planned against `tracked` rather than `symbols`: a derived row is computed from other rows, and
+        // watching only the gap has to fetch the three it is made of. Those extra entries are cached but
+        // never drawn — the panel iterates the watchlist, which does not contain them.
+        let tracked = DerivedQuote.tracked(symbols)
         let plan: [(market: Market, source: any QuoteSource, symbols: [String])] =
             Market.allCases.compactMap { market in
-                let entries = symbols.filter { $0.market == market && shouldFetch($0) }
+                let entries = tracked.filter {
+                    $0.market == market && !DerivedQuote.isDerived($0.symbol) && shouldFetch($0)
+                }
                 guard !entries.isEmpty else { return nil }
                 return (market, source(for: market), entries.map(\.symbol))
             }
@@ -242,7 +254,7 @@ final class QuoteReader: ObservableObject {
                 }
             }
 
-            self.apply(fetched, symbols: symbols, failures: failures)
+            self.apply(fetched, symbols: tracked, failures: failures)
 
             if wantHistory {
                 await self.refreshHistory(for: symbols)
@@ -298,7 +310,14 @@ final class QuoteReader: ObservableObject {
         for entry in symbols {
             if let q = byKey[entry.id] { lastGood[entry.id] = q }
         }
-        // Drop quotes for symbols no longer watched, so a removed row doesn't linger in the menu bar.
+        // The computed rows, after the fetched ones and from the merged result rather than from this batch:
+        // the gap's three inputs are on two different clocks, so on most ticks at least one of them was not
+        // refetched and only `lastGood` has all three.
+        for (id, q) in DerivedQuote.values(for: symbols, from: lastGood) { lastGood[id] = q }
+
+        // Drop quotes for symbols no longer watched, so a removed row doesn't linger in the menu bar. The
+        // set is the tracked list, not the visible one, so a derived row's inputs survive the prune that
+        // runs the moment after they are fetched.
         let live = Set(symbols.map(\.id))
         lastGood = lastGood.filter { live.contains($0.key) }
         history = history.filter { live.contains($0.key) }
@@ -344,7 +363,7 @@ final class QuoteReader: ObservableObject {
     /// through it each time is what makes the cache expire by itself when the day rolls over.
     private func refreshFundamentals(for symbols: [WatchedSymbol]) async {
         let feed = fundamentalsFeed
-        let wanted = symbols.filter { $0.market == .vietnam && !$0.isIndex }
+        let wanted = symbols.filter(\.hasPerShareFundamentals)
         guard !wanted.isEmpty else { return }
 
         let results = await withTaskGroup(of: (String, Fundamentals)?.self) { group in
@@ -372,7 +391,11 @@ final class QuoteReader: ObservableObject {
     /// `.world` counts as open because spot gold is trading — and every one of those ticks would build an
     /// empty plan and fetch nothing at all.
     private func applyCadence() {
-        let anyOpen = watchlist.symbols.contains { MarketHours.isOpen($0.market, symbol: $0.symbol) }
+        // Over the tracked list, matching the plan: a watchlist holding only the gold gap has nothing of its
+        // own to fetch, and reading the visible rows alone would drop to the idle cadence while the three
+        // rows it is computed from were still moving.
+        let anyOpen = DerivedQuote.tracked(watchlist.symbols)
+            .contains { MarketHours.isOpen($0.market, symbol: $0.symbol) }
         poll.schedule(every: anyOpen ? Self.activeInterval : Self.idleInterval)
     }
 }

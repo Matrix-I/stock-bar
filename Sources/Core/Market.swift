@@ -3,14 +3,17 @@
 //
 // Split out of Quote.swift because both answers are load-bearing well outside the model: the market
 // picks the data source, the refresh cadence, the price precision and the up/down colour convention,
-// while `Ticker.isIndex` decides price scaling in VNQuoteSource and decimal places in PriceFormat.
+// while `Ticker.isIndex` decides price scaling in VPSQuoteSource and decimal places in PriceFormat.
 
 import Foundation
 
 /// Which market an instrument trades on. Drives the refresh cadence (a closed exchange is not polled;
 /// crypto is 24/7), the price formatting, and the up/down colour convention.
 enum Market: String, Codable, Sendable, CaseIterable {
-    /// Vietnamese equities and indices (HOSE / HNX / UPCOM). Session hours in MarketHours.
+    /// Priced in dong, in Vietnam. The equities and indices on HOSE / HNX / UPCOM, and — since the gold gap
+    /// needed them — the SJC bar and the dollar rate, which are on no exchange at all. So this is a bucket
+    /// of venues rather than one, exactly as `.world` is: `DomesticIndex` carries which, and the session
+    /// hours differ with it, because a jeweller does not keep a call auction or a lunch break.
     case vietnam
     /// Crypto pairs — always open.
     case crypto
@@ -58,6 +61,10 @@ extension Market {
         // the Vietnamese board — checked against it, including the three-letter DJI, DXY and XAU, before
         // adding them.
         if WorldIndex.listing(for: upper) != nil { return .world }
+        // The domestic gold bar, the dollar rate and the gap between them. Named rather than guessed for
+        // the same reason as the world rows, and the check that let them in was the same one: `USD` is a
+        // live UPCOM ticker and `VND` is VNDirect on HOSE, so the obvious spellings had to be left out.
+        if DomesticIndex.listing(for: upper) != nil { return .vietnam }
         return nil
     }
 }
@@ -83,6 +90,6 @@ enum Ticker {
     /// so two spellings of one index would otherwise be two rows quoting the same number.
     static func canonical(_ typed: String) -> String {
         let s = typed.trimmingCharacters(in: .whitespaces).uppercased()
-        return WorldIndex.listing(for: s)?.symbol ?? s
+        return WorldIndex.listing(for: s)?.symbol ?? DomesticIndex.listing(for: s)?.symbol ?? s
     }
 }

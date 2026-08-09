@@ -2,7 +2,7 @@
 // never care whether a row came from a Vietnamese exchange or a crypto venue.
 //
 // Prices are stored in the instrument's own display unit: VND for HOSE/HNX tickers (already unscaled
-// — see VNQuoteSource, whose upstream reports some fields in units of 1 VND and others in 1000s), and
+// — see VPSQuoteSource, whose upstream reports some fields in units of 1 VND and others in 1000s), and
 // USD for crypto pairs. Formatting is the view's job (see PriceFormat), not the model's.
 
 import Foundation
@@ -106,6 +106,13 @@ struct Quote: Sendable, Identifiable {
     /// its baseline has no day boundary to fall behind.
     func isFromCurrentSession(at now: Date) -> Bool {
         guard market == .vietnam else { return true }
+        // The domestic gold and FX rows are on `.vietnam` but not on HOSE's clock, and the rebase below is
+        // wrong for them twice over. They have no previous close to fall behind — PNJ publishes none — so
+        // rebasing would set a reference where the feed deliberately left none and turn a bare price into a
+        // flat one, inventing the very "unchanged" reading their missing reference exists to avoid. And
+        // their day does not begin at 09:00: a board published on a Saturday morning is current news on
+        // Saturday afternoon, which `hasSessionStarted` would deny for the whole weekend.
+        guard !DomesticIndex.isDomestic(symbol) else { return true }
         return MarketHours.isSameSessionDay(asOf, now)
             && MarketHours.hasSessionStarted(market, at: asOf)
     }

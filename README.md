@@ -4,8 +4,9 @@ A menu-bar ticker that refreshes about once a minute. Vietnamese equities and in
 from VPS's public market-data backends; crypto comes from Binance's public REST API; the Dow, the Nasdaq
 Composite, the Nikkei 225 and the US dollar index come from Yahoo Finance's chart endpoint; spot gold comes
 from TradingView's scanner, the only one of those that carries it, with its sparkline borrowed from
-investing.com because the scanner publishes no bars. No API key, no account, no Python — the app talks to
-all of them over `URLSession`.
+investing.com because the scanner publishes no bars; the domestic SJC gold bar comes from PNJ's retail
+board and the dollar rate from Vietcombank's published sheet. No API key, no account, no Python — the app
+talks to all of them over `URLSession`.
 
 ```bash
 ./build_app.sh            # compiles Sources/ into StockBar.app and relaunches it
@@ -118,6 +119,32 @@ the ordinary staleness allowance the row rendered permanently dimmed — a worki
 broken — so the venue's delay is added to the allowance, and the detail card says `Updated 10m ago` instead
 of pretending otherwise. Gold does not need it: the scanner streams.
 
+**Three Vietnamese rows are not on any exchange**: `SJC` (the gold bar, in VND per lượng), `USDVND`
+(Vietcombank's selling rate) and `GOLDGAP` — *chênh lệch*, how much more a lượng of SJC costs than the same
+weight of world spot gold. The gap is the reason the other two are here, and it is the first row in this app
+whose value is **computed rather than fetched**: SJC's price minus `GOLD × 1.2057 × USDVND`, where 1.2057 is
+a lượng (37.5 g) in troy ounces (31.1034768 g). Watching `GOLDGAP` alone works — a derived row pulls its
+three inputs into the fetch plan, and they are cached without being drawn.
+
+Their venue lines say `PNJ`, `VCB` and `SJC − spot`, and the first of those is a deliberate admission:
+sjc.com.vn is unreachable from behind a Cloudflare Gateway, so the bar is quoted through a retailer and the
+row says whose price it is. PNJ's board is in **thousands of dong per chỉ**, which the response never states
+— the check that settled it was the plain 999.9 ring, which carries almost no premium and read 4.9% over the
+converted world price, exactly where a ring should sit.
+
+`SJC` and `GOLDGAP` show a **bare price with no change figure**, because PNJ publishes no previous close and
+ignores a date parameter; inventing a baseline for them would be worse than omitting one. `USDVND` does have
+one — VCB's endpoint takes a date and carries its sheet forward across weekends and holidays, so yesterday's
+rate is always one request away. None of the three has a sparkline: they are step functions published a
+handful of times a day, with no series behind them.
+
+They keep **shop hours, not HOSE's** — 08:30–17:00 ICT, Monday to Saturday, with no lunch break, since a
+jeweller does not close its board to eat. Their staleness allowance is eight hours rather than ninety
+seconds, for the same reason the dollar index needs ten minutes: against the ordinary allowance a board that
+publishes once at 11:00 would render permanently dimmed by 11:02. `USD` and `VND` are deliberately *not*
+accepted spellings — `USD` is a live UPCOM ticker and `VND` is VNDirect on HOSE — so the aliases are
+`VANGSJC`, `GOLDSJC`, `TYGIA` and `GAP`.
+
 **Adding a symbol checks it with the venue first.** Neither upstream rejects a bad ticker outright — the
 Vietnamese board just omits the row and Binance answers `400` — so a typo used to join the list and render
 a dash forever, indistinguishable from a feed that was down. The add field now asks for a quote before
@@ -205,6 +232,8 @@ Crypto uses green/red only; it has no daily band.
 | VN equities | `bgapidatafeed.vps.com.vn/getliststockdata/VCB,FPT,…` | One request covers every ticker. Returns last price, reference, ceiling, floor, volume. |
 | VN indices | `histdatafeed.vps.com.vn/tradingview/history?resolution=1` | TradingView UDF feed. 1-minute bars, so one request gives both the live value and the sparkline. |
 | VN reference | same, `resolution=1D` | Previous session's close. Cached for the day — it only changes overnight. |
+| Domestic gold | `edge-api.pnj.io/ecom-frontend/v1/get-gold-price` | PNJ's whole retail board in one request; `masp: "SJC"` is the bar. Prices are **thousands of dong per chỉ**, which nothing in the response says — see below. No previous close, and `?date=` is ignored. `updateDate` is a real publication time. |
+| USD/VND | `vietcombank.com.vn/api/exchangerates?date=2026-08-09` | The `sell` column. The sheet is carried forward on weekends and holidays, so the previous-day request for the reference never falls in a hole. `UpdatedDate` reads 23:00 on the requested date — in the future during a session — so it is not usable as `asOf`. |
 | Crypto | `api.binance.com/api/v3/ticker/24hr?symbols=[…]` | One request covers every pair. Reference is `openPrice` (24h rolling), matching Binance's own UI. |
 | Crypto sparkline | `api.binance.com/api/v3/klines?interval=1m&limit=60` | Last hour of 1-minute candles. |
 | VN fundamentals | `iboard-api.ssi.com.vn/statistics/company/financial-indicator?symbol=VCB` | EPS and the P/E–P/B pair the book value is recovered from. Cached for the ICT day. |
@@ -282,7 +311,10 @@ Sources/
   Reader/                      the venues
     QuoteSource.swift          the protocol they all implement, and QuoteError
     HTTPClient.swift           shared URLSession + lenient JSON number coercion
-    VNQuoteSource.swift        VPS board + TradingView UDF history
+    VNQuoteSource.swift        routes a Vietnamese symbol to its venue — one bucket, three upstreams
+    VPSQuoteSource.swift       VPS board + TradingView UDF history: the exchange rows
+    PNJQuoteSource.swift       PNJ's retail board: the SJC bar, quoted in dong per lượng
+    VietcombankQuoteSource.swift  VCB's rate sheet: USD/VND, against the previous day
     CryptoQuoteSource.swift    Binance ticker + klines
     WorldQuoteSource.swift     routes a world symbol to its feed, and its bars to theirs — one bucket, three upstreams
     YahooQuoteSource.swift     Yahoo chart endpoint: quote and sparkline from one response
@@ -308,7 +340,7 @@ Sources/
     Panel/                       PanelHeader, SymbolList, QuoteRow, Sparkline,
                                  QuoteDetailCard, AddSymbolField, SettingsFooter
   App/StockBarApp.swift        NSStatusItem + NSPopover, entry point
-Tests/StockBarCoreTests/       121 tests over Sources/Core
+Tests/StockBarCoreTests/       130 tests over Sources/Core
 Tools/probe.sh                 exercises the data layer from the command line
 Tools/uisnap.sh                renders the popover to a PNG (no Screen Recording permission needed)
 Tools/makeicon.sh              regenerates AppIcon.icns from BrandMark (the .icns is committed)

@@ -36,6 +36,11 @@ enum MarketHours {
     private static let lunchStart = 11 * 60 + 30
     private static let lunchEnd = 13 * 60
 
+    /// The domestic gold and FX boards — see `isDomesticBoardOpen`. Shop hours, not exchange hours: no
+    /// call auction to wait for and no lunch break, because a jeweller does not close its board to eat.
+    private static let domesticOpen = 8 * 60 + 30
+    private static let domesticClose = 17 * 60
+
     private static var ictCalendar: Calendar {
         var cal = Calendar(identifier: .gregorian)
         cal.timeZone = ict
@@ -164,10 +169,32 @@ enum MarketHours {
     /// answer to "is anything here worth a request". Gold and the dollar index closed that hole: the union
     /// is true around the clock on a weekday, so asking it per market would poll every world row all night.
     static func isOpen(_ market: Market, symbol: String, at date: Date = Date()) -> Bool {
-        guard market == .world, let listing = WorldIndex.listing(for: symbol) else {
-            return isOpen(market, at: date)
+        if market == .world, let listing = WorldIndex.listing(for: symbol) {
+            return isOpen(exchange: listing.exchange, at: date)
         }
-        return isOpen(exchange: listing.exchange, at: date)
+        // `.vietnam` is no longer one venue either: a jeweller's board and a bank's rate sheet keep shop
+        // hours, not HOSE's, and they do not stop for its lunch break.
+        if market == .vietnam, DomesticIndex.isDomestic(symbol) {
+            return isDomesticBoardOpen(at: date)
+        }
+        return isOpen(market, at: date)
+    }
+
+    /// When the domestic gold and FX boards can be expected to move: 08:30–17:00 ICT, Monday to Saturday.
+    ///
+    /// Retail hours rather than a measured feed window, and deliberately wider than either feed's actual
+    /// publishing times. What IS measured is only the shape: PNJ's board carried `updateDate` 11:00:38 on a
+    /// Saturday and nothing newer appeared on the Sunday, so Saturday counts and Sunday does not. The rest
+    /// is the convention every shop and branch in the country keeps.
+    ///
+    /// Erring wide is the deliberate half. Being too generous costs a handful of requests for a number that
+    /// has not changed; being too narrow means a price published at 16:45 goes unfetched until the next
+    /// morning — or, on a Saturday, until Monday. That is the same trade this file already makes for public
+    /// holidays, in the same direction.
+    private static func isDomesticBoardOpen(at date: Date) -> Bool {
+        guard let (weekday, minutes) = ictWeekdayAndMinutes(at: date) else { return false }
+        guard weekday != 1 else { return false }              // Sunday: the boards stand still
+        return minutes >= domesticOpen && minutes < domesticClose
     }
 
     /// True during a HOSE/HNX trading session: a weekday, inside 09:00–15:00 ICT, and not in the

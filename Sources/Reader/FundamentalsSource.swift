@@ -26,7 +26,7 @@ actor FundamentalsSource {
 
     private static let base = "https://iboard-api.ssi.com.vn/statistics/company/financial-indicator"
 
-    /// ICT, matching VNQuoteSource: the reporting day these figures belong to rolls over in Vietnam, not
+    /// ICT, matching VPSQuoteSource: the reporting day these figures belong to rolls over in Vietnam, not
     /// wherever the laptop happens to be.
     private static var ictCalendar: Calendar {
         var c = Calendar(identifier: .gregorian)
