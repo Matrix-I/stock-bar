@@ -13,7 +13,7 @@ APP=StockBar
 # carries a -SNAPSHOT suffix so it can't be mistaken for a shipped one. Cutting release X.Y.Z means
 # dropping the suffix here, releasing, then bumping to the next X.(Y+1).0-SNAPSHOT — release.sh does
 # all three by rewriting this single line.
-VERSION="1.2.0-SNAPSHOT"
+VERSION="1.2.0"
 # CFBundleVersion must be one to three period-separated integers: LaunchServices and SMAppService
 # compare it as a version, and Sparkle compares it against the appcast to decide whether an update is
 # newer, so "-SNAPSHOT" there would make all three undefined. The suffix therefore lives only in
