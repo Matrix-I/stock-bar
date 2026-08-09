@@ -7,6 +7,43 @@
     <language>en</language>
     <!-- APPCAST_ITEMS: update_appcast.sh prepends each release's <item> immediately below this line. -->
     <item>
+      <title>Version 1.1.0</title>
+      <pubDate>Sun, 09 Aug 2026 11:06:54 +0700</pubDate>
+      <sparkle:version>1.1.0</sparkle:version>
+      <sparkle:shortVersionString>1.1.0</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
+      <description><![CDATA[Changes since v1.0.0.
+
+### Added
+
+- carry the Dow, the Nasdaq Composite and the Nikkei 225
+- open the detail card on a click instead of a hover
+- carry gold and the US dollar index
+- quote gold at spot instead of the COMEX future
+- draw gold's sparkline from investing.com
+
+### Fixed
+
+- reset a VN change to flat once the day rolls past its session
+- stop an older build from deleting a watchlist it cannot read
+- fetch a symbol as soon as it is added
+
+### Install
+
+1. Open the `.dmg` and drag **StockBar** into Applications.
+2. The app is ad-hoc signed, not notarized, so Gatekeeper will refuse to open it. Clear the
+   quarantine flag once:
+
+   ```bash
+   xattr -dr com.apple.quarantine /Applications/StockBar.app
+   ```
+
+3. Launch it. The ticker appears in the menu bar — there is no Dock icon and no window.
+
+Requires macOS 13 Ventura or later. Building from source needs only the Xcode Command Line Tools.]]></description>
+      <enclosure url="https://github.com/Matrix-I/stock-bar/releases/download/v1.1.0/StockBar-1.1.0.dmg" sparkle:edSignature="GnI75B+dS5liasyy/w9YP9KH/nvRTyWZdT2Mt/FTyRkBR0ZxAej3qCYOYOcD32sMledLrfTkBXcjZIQUsx2eDw==" length="2052009" type="application/octet-stream" />
+    </item>
+    <item>
       <title>Version 1.0.0</title>
       <pubDate>Thu, 30 Jul 2026 10:46:39 +0700</pubDate>
       <sparkle:version>1.0.0</sparkle:version>
