@@ -111,6 +111,33 @@ final class Watchlist: ObservableObject {
         save()
     }
 
+    /// Set or clear one direction's alert on a row. A nil threshold removes it.
+    ///
+    /// `currentPrice` is passed rather than looked up because this store holds no quotes and should not: it
+    /// decides only what an alert IS, and PriceAlert's initialiser needs the price to know whether the
+    /// condition already holds — an alert typed onto a price that has already crossed starts disarmed, so
+    /// it reports the next crossing rather than the one on screen.
+    func setAlert(_ entry: WatchedSymbol, direction: PriceAlert.Direction,
+                  threshold: Double?, currentPrice: Double?) {
+        guard let i = symbols.firstIndex(where: { $0.id == entry.id }) else { return }
+        symbols[i].alerts.removeAll { $0.direction == direction }
+        if let threshold, threshold > 0 {
+            symbols[i].alerts.append(PriceAlert(direction: direction, threshold: threshold,
+                                                currentPrice: currentPrice))
+        }
+        save()
+    }
+
+    /// Write back arming state after an evaluation. Separate from the editing methods above because this is
+    /// the app talking to itself rather than the user changing anything, and because it must be a no-op when
+    /// nothing moved — every write publishes, and republishing the list on each poll would redraw the whole
+    /// panel once a minute for no reason.
+    func applyAlertStates(_ updated: [WatchedSymbol]) {
+        guard updated != symbols else { return }
+        symbols = updated
+        save()
+    }
+
     /// Restore the shipped list — the escape hatch for a watchlist that's been edited into a mess.
     func resetToDefaults() {
         symbols = Self.shipped

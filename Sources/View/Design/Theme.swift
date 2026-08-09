@@ -110,6 +110,10 @@ enum Theme {
         static let reorderHit = CGSize(width: Theme.pt(11), height: Theme.pt(8))
         static let sessionDot = Theme.pt(6)
         static let marketPicker = Theme.pt(84)
+        /// One alert threshold. Two of these plus their `≥`/`≤` labels and the word "Alert" have to fit
+        /// across the panel, and 144,000,000 — the domestic gold bar, the longest price this app quotes —
+        /// has to fit inside one of them. This is the width where both are true.
+        static let alertField = Theme.pt(76)
         /// Keeps a few rows visible on a short display rather than letting the footer squeeze the list to
         /// nothing.
         static let minListHeight = Theme.pt(120)

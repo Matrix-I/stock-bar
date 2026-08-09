@@ -145,6 +145,24 @@ publishes once at 11:00 would render permanently dimmed by 11:02. `USD` and `VND
 accepted spellings — `USD` is a live UPCOM ticker and `VND` is VNDirect on HOSE — so the aliases are
 `VANGSJC`, `GOLDSJC`, `TYGIA` and `GAP`.
 
+**Any row can carry price alerts.** Edit mode gives each row a bell; opening it reveals two fields, `≥`
+and `≤`, and crossing either posts a macOS notification. A bell on the venue line marks a row that has one
+set, and its tooltip says what the threshold is and whether it has already gone off.
+
+Two rules make them usable rather than maddening, and both are the difference between an alert and a
+nuisance. An alert **fires once and then goes quiet**, rearming only when the price has come back through
+the line by half a percent — a price resting on its threshold crosses it back and forth all session, and
+firing each time would spend the app's notification permission in an afternoon. And an alert **set on a
+price that has already crossed starts disarmed**: asking to be told when gold passes 4,300 while it reads
+4,341 means the next time, not the number on screen while you type.
+
+What no rule can fix, and what the editor says out loud instead: **an alert is only checked while StockBar
+is running and the row's own venue is open.** There is no server behind this app. A threshold on spot gold
+can fire overnight because spot gold trades overnight; the same threshold on a HOSE ticker cannot fire
+before nine in the morning. Permission is requested when the first alert is created, not at launch — a
+menu-bar ticker that demands notification access before it has anything to notify about gets refused, and
+the refusal is remembered.
+
 **Adding a symbol checks it with the venue first.** Neither upstream rejects a bad ticker outright — the
 Vietnamese board just omits the row and Binance answers `400` — so a typo used to join the list and render
 a dash forever, indistinguishable from a feed that was down. The add field now asks for a quote before
@@ -340,7 +358,7 @@ Sources/
     Panel/                       PanelHeader, SymbolList, QuoteRow, Sparkline,
                                  QuoteDetailCard, AddSymbolField, SettingsFooter
   App/StockBarApp.swift        NSStatusItem + NSPopover, entry point
-Tests/StockBarCoreTests/       130 tests over Sources/Core
+Tests/StockBarCoreTests/       139 tests over Sources/Core
 Tools/probe.sh                 exercises the data layer from the command line
 Tools/uisnap.sh                renders the popover to a PNG (no Screen Recording permission needed)
 Tools/makeicon.sh              regenerates AppIcon.icns from BrandMark (the .icns is committed)

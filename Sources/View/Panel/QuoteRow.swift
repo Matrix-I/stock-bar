@@ -39,11 +39,36 @@ struct QuoteRow: View {
             Text(entry.symbol.uppercased())
                 .font(Theme.Fonts.symbol)
                 .lineLimit(1)
-            Text(entry.venueLabel)
-                .font(Theme.Fonts.venue)
-                .foregroundStyle(.secondary)
+            HStack(spacing: Theme.Space.tight) {
+                Text(entry.venueLabel)
+                    .font(Theme.Fonts.venue)
+                    .foregroundStyle(.secondary)
+                // A row that will interrupt you should say so without being clicked. On the venue line
+                // rather than beside the price, because the price column is the one thing here that must
+                // keep its width — a glyph appearing next to it would shift every digit sideways the
+                // moment a threshold was set.
+                if !entry.alerts.isEmpty {
+                    Image(systemName: "bell.fill")
+                        .font(Theme.Fonts.venue)
+                        .foregroundStyle(.secondary)
+                        .help(alertSummary)
+                }
+            }
         }
         .frame(width: Theme.Size.symbolColumn, alignment: .leading)
+    }
+
+    /// The tooltip behind the bell: what is set, and whether it has already had its say. "fired" rather
+    /// than a silent disarmed state, because an alert that has gone off looks identical to one that never
+    /// will, and the difference is the whole reason arming is persisted.
+    private var alertSummary: String {
+        entry.alerts
+            .sorted { $0.direction.rawValue < $1.direction.rawValue }
+            .map { alert in
+                let level = PriceFormat.price(alert.threshold, market: entry.market, isIndex: entry.isIndex)
+                return "\(alert.holdsDescription) \(level)\(alert.isArmed ? "" : " (fired)")"
+            }
+            .joined(separator: " · ")
     }
 
     private func priceColumn(_ quote: Quote) -> some View {

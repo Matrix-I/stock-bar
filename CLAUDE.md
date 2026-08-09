@@ -116,6 +116,18 @@ where it used to be) makes the gesture fail on the biggest target in the row.
   Don't `cd` into it (that breaks codesign paths) and don't commit it.
 - **VN prices are real VND in the model.** The VPS board reports equities in thousands and indices in
   points; the scaling happens once, in `VNQuoteSource`. Getting it wrong is a 1000× error on screen.
+- **An alert is the app's only output that interrupts somebody, so its rules are pure and tested.**
+  `Core/PriceAlert.swift` owns both: fire once then disarm, and rearm only past a half-percent margin.
+  Neither is checkable by looking — telling "fires once" from "fires every minute" takes an hour of
+  watching a real price sit on a real threshold — and the cost of getting it wrong is a permission the
+  user revokes permanently. `AlertEngine.evaluate` returns the updated watchlist alongside the firings
+  because a rearm changes state while announcing nothing; dropping that write is what silently turns
+  "once" into "every minute".
+- **A new field on `WatchedSymbol` must be decoded with `decodeIfPresent`.** A property default does NOT
+  make a Codable key optional — the synthesised `init(from:)` still requires it — so adding `alerts`
+  briefly made every previously stored row undecodable, and `WatchlistCoding` correctly carried them all
+  as foreign and showed the shipped defaults. Nothing was lost and nothing was visible. That is why the
+  type now has a hand-written `init(from:)`.
 - **`.vietnam` is a bucket of venues too, and one of its rows is not fetched at all.** `VNQuoteSource` is a
   router over `DomesticIndex.listing(for:)`: the VPS board serves the exchange rows, PNJ quotes the SJC gold
   bar and Vietcombank the dollar. Anything unlisted goes to the board, never the other way — PNJ answers with

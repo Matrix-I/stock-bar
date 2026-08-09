@@ -18,6 +18,13 @@ struct SymbolList: View {
     /// card can be read without holding the pointer still on the row it belongs to.
     @State private var selected: String?
 
+    /// The row whose editor strip is open, if any. One at a time: two open strips push the list around
+    /// enough that the row being aimed at moves out from under the pointer.
+    ///
+    /// Seeded from the environment for the same reason `selected` is — Tools/uisnap.sh cannot press a
+    /// button, and a state that cannot be rendered cannot be checked. Never set for the app itself.
+    @State private var expanded: String? = ProcessInfo.processInfo.environment["STOCKBAR_UI_EDITOR"]
+
     /// Forces one symbol's card open so Tools/uisnap.sh can render it. A click is unreachable from a
     /// snapshot tool, and an unrenderable state is an unverifiable one. Never set for the app itself.
     private static let forcedCard = ProcessInfo.processInfo.environment["STOCKBAR_UI_CARD"]?.uppercased()
@@ -40,7 +47,10 @@ struct SymbolList: View {
                              stale: reader.isStale(entry.id),
                              showSparkline: !editing)
 
-                    if editing { removeButton(entry) }
+                    if editing {
+                        alertButton(entry)
+                        removeButton(entry)
+                    }
                 }
                 .padding(.vertical, Theme.Space.rowGap / 2)
                 // The row is mostly Spacer, and a click on a transparent area is not reported without this.
@@ -50,11 +60,20 @@ struct SymbolList: View {
                 // only says that it is the one that was clicked, and hands over a rectangle the panel can
                 // resolve into a position.
                 .detailAnchor(entry, when: detailIsShown(entry))
+
+                // Outside the HStack above, so the strip gets the full panel width and does not inherit
+                // the row's tap gesture — a click meant for a text field must not also toggle a card.
+                if editing, expanded == entry.id {
+                    RowEditor(reader: reader, entry: entry)
+                        .padding(.bottom, Theme.Space.rowGap / 2)
+                }
             }
         }
         // Edit mode suppresses the card (see detailIsShown), so a selection made before it was entered would
         // reappear on the way out — a card opening by itself, minutes after the click that asked for it.
-        .onChange(of: editing) { _ in selected = nil }
+        // The editor strip closes with it, which is also what commits a field left mid-edit: RowEditor
+        // writes back in `onDisappear`.
+        .onChange(of: editing) { _ in selected = nil; expanded = nil }
         // Same reasoning across an open/close of the whole panel: the popover's view tree is built once and
         // outlives every showing of it, so without this the panel reopens with the card that was on screen
         // when it was last dismissed. The notification is the only signal the panel gets — NSPopover is
@@ -123,6 +142,19 @@ struct SymbolList: View {
         .disabled(disabled)
         .foregroundStyle(disabled ? Color.secondary.opacity(Theme.Opacity.disabledIcon) : .secondary)
         .help(symbol == "chevron.up" ? "Move up" : "Move down")
+    }
+
+    /// Opens the editor strip, and doubles as the indicator that a row has thresholds on it: the bell is
+    /// filled and tinted whenever any are set, so edit mode alone answers "which rows will interrupt me".
+    private func alertButton(_ entry: WatchedSymbol) -> some View {
+        let armed = !entry.alerts.isEmpty
+        return Button { expanded = (expanded == entry.id) ? nil : entry.id } label: {
+            Image(systemName: armed ? "bell.fill" : "bell")
+                .font(Theme.Fonts.pinIcon)
+                .foregroundStyle(armed ? Color.accentColor : .secondary)
+        }
+        .buttonStyle(.plain)
+        .help(armed ? "Edit the price alerts" : "Add a price alert")
     }
 
     private func removeButton(_ entry: WatchedSymbol) -> some View {

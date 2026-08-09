@@ -83,6 +83,27 @@ enum PriceFormat {
     /// The signed percentage shown next to the price, e.g. "+0.82%" / "−1.14%". Uses U+2212 MINUS SIGN
     /// rather than a hyphen so the negative sign has the same width as the plus in a monospaced-digit
     /// font — with a hyphen the label visibly shifts every time a quote crosses zero.
+    /// A number typed by a person, back into a Double. nil for anything that isn't one.
+    ///
+    /// Written as the exact inverse of `decimalFormatter` above, because the number someone types into an
+    /// alert field is usually one they just read off this panel — and that formatter pins its separators to
+    /// "," and "." whatever the machine's locale says. A `NumberFormatter` reading back with the system
+    /// locale would therefore reject the app's own output on any machine set to Vietnamese.
+    ///
+    /// One concession beyond that inverse, and it is the only ambiguous case worth resolving: two or more
+    /// dots cannot all be decimal points, so "144.000.000" is unmistakably Vietnamese grouping and is read
+    /// as 144 million. A SINGLE dot stays a decimal point — "60.000" is 60, not sixty thousand — because
+    /// that is what the panel means by it, and guessing the other way would silently multiply a threshold
+    /// by a thousand.
+    static func parse(_ text: String) -> Double? {
+        var s = text.trimmingCharacters(in: .whitespaces).replacingOccurrences(of: ",", with: "")
+        if s.filter({ $0 == "." }).count > 1 {
+            s = s.replacingOccurrences(of: ".", with: "")
+        }
+        guard !s.isEmpty, s.allSatisfy({ $0.isNumber || $0 == "." || $0 == "-" }) else { return nil }
+        return Double(s)
+    }
+
     static func percent(_ pct: Double) -> String {
         sign(of: pct) + String(format: "%.2f%%", abs(pct))
     }

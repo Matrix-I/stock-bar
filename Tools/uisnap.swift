@@ -48,6 +48,17 @@ struct UISnap {
                 watchlist.add(String(field), market: .vietnam)
             }
         }
+        // STOCKBAR_UI_ALERT=VCB:60000 puts a threshold on a row, because the bell indicator and the filled
+        // bell in edit mode only appear when one is set, and neither can be produced by a snapshot tool
+        // that cannot type into a field. `currentPrice: nil` keeps the alert armed whatever the price is
+        // doing, so the rendered state does not depend on the market.
+        if let spec = ProcessInfo.processInfo.environment["STOCKBAR_UI_ALERT"] {
+            let parts = spec.split(separator: ":")
+            if parts.count == 2, let threshold = Double(parts[1]),
+               let entry = watchlist.symbols.first(where: { $0.symbol == parts[0].uppercased() }) {
+                watchlist.setAlert(entry, direction: .above, threshold: threshold, currentPrice: nil)
+            }
+        }
         let reader = QuoteReader(watchlist: watchlist)
         let updater = Updater()
 

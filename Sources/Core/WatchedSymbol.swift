@@ -19,6 +19,33 @@ struct WatchedSymbol: Codable, Sendable, Hashable, Identifiable {
     /// is the scarcest resource in the whole app.
     var pinnedToMenuBar: Bool
 
+    /// Thresholds that notify when the price crosses them — see PriceAlert. At most one per direction, so
+    /// this is a pair rather than a list in practice; kept as an array because the storage layer carries
+    /// unknown fields forward and a fixed pair would have to be migrated to become anything else.
+    ///
+    var alerts: [PriceAlert] = []
+
+    /// Decoded by hand for one key, and the reason is the incident in WatchlistCoding's header read from
+    /// the other end. A property default does NOT make a Codable key optional — Swift's synthesised
+    /// `init(from:)` still requires it — so adding `alerts` made every row written before alerts existed
+    /// undecodable. WatchlistCoding then did exactly what it promises: it kept them as foreign rows and
+    /// showed the shipped defaults instead. Nothing was lost, and nothing was visible either. A new field
+    /// on this type must always be read with `decodeIfPresent`.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        symbol = try c.decode(String.self, forKey: .symbol)
+        market = try c.decode(Market.self, forKey: .market)
+        pinnedToMenuBar = try c.decode(Bool.self, forKey: .pinnedToMenuBar)
+        alerts = try c.decodeIfPresent([PriceAlert].self, forKey: .alerts) ?? []
+    }
+
+    init(symbol: String, market: Market, pinnedToMenuBar: Bool, alerts: [PriceAlert] = []) {
+        self.symbol = symbol
+        self.market = market
+        self.pinnedToMenuBar = pinnedToMenuBar
+        self.alerts = alerts
+    }
+
     /// Short label for the menu bar. VNINDEX is the one symbol whose ticker is too long to sit in a
     /// menu bar next to anything else, so it gets an alias; everything else uses its own ticker.
     var menuBarLabel: String {

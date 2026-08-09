@@ -70,6 +70,7 @@ final class QuoteReader: ObservableObject {
     private let crypto = CryptoQuoteSource()
     private let world = WorldQuoteSource()
     private let fundamentalsFeed = FundamentalsSource()
+    private let notifier = AlertNotifier()
 
     private lazy var poll = PollingTimer { [weak self] in self?.refresh() }
     private var panelOpen = false
@@ -105,8 +106,14 @@ final class QuoteReader: ObservableObject {
         // it, leaving the new row on a dash until the next tick or a manual Refresh. It looked intermittent
         // because it wasn't always reached: an add during an in-flight fetch is deferred by `refreshQueued`
         // and runs later, by which point the property has caught up and the row fills in correctly.
+        //
+        // Only when the SET of rows changes. Pinning, reordering and — since alerts — this class writing
+        // arming state back on every poll all republish the list, and refetching for any of them would be
+        // waste at best: an alert rearming would trigger a fetch, whose result would rearm another, and the
+        // 60-second cadence would quietly become "as fast as the network allows".
         watchlistChanges = watchlist.$symbols
             .dropFirst()
+            .removeDuplicates { Set($0.map(\.id)) == Set($1.map(\.id)) }
             .sink { [weak self] edited in self?.refresh(using: edited) }
 
         refresh()
@@ -201,6 +208,18 @@ final class QuoteReader: ObservableObject {
         } catch {
             return .unreachable(error.localizedDescription)
         }
+    }
+
+    /// Set or clear one direction's alert on a row.
+    ///
+    /// Here rather than on `Watchlist` because setting an alert needs two things that store does not have:
+    /// the current price, which decides whether the alert starts armed, and the notifier, which has to ask
+    /// for permission at exactly this moment — the one point where the user has demonstrably asked to be
+    /// interrupted. `quotes` and not `lastGood`, so the comparison is against the number on screen.
+    func setAlert(_ entry: WatchedSymbol, direction: PriceAlert.Direction, threshold: Double?) {
+        watchlist.setAlert(entry, direction: direction, threshold: threshold,
+                           currentPrice: quotes[entry.id]?.price)
+        if threshold != nil { notifier.requestAuthorizationIfNeeded() }
     }
 
     func refresh() {
@@ -329,6 +348,23 @@ final class QuoteReader: ObservableObject {
         } else {
             lastError = failures.joined(separator: " · ")
         }
+
+        evaluateAlerts()
+    }
+
+    /// Check every threshold against what was just merged, post whatever crossed, and store the new arming
+    /// state.
+    ///
+    /// Over `watchlist.symbols` and not the tracked list: an alert belongs to a row the user put there, and
+    /// a row pulled in only to feed a derived value is not one they asked to hear about. It reads `quotes`
+    /// rather than `lastGood` so a threshold is compared against the number the panel is drawing — after
+    /// the midnight rebase, not before it.
+    private func evaluateAlerts() {
+        let entries = watchlist.symbols
+        guard entries.contains(where: { !$0.alerts.isEmpty }) else { return }
+        let (fired, updated) = AlertEngine.evaluate(entries, quotes: quotes)
+        watchlist.applyAlertStates(updated)
+        for firing in fired { notifier.post(firing) }
     }
 
     /// Fetch sparkline history for every watched symbol, concurrently. Errors are swallowed: a missing
