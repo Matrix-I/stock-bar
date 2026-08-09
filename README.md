@@ -263,16 +263,16 @@ Crypto uses green/red only; it has no daily band.
 
 | What | Endpoint | Notes |
 |---|---|---|
-| VN equities | `bgapidatafeed.vps.com.vn/getliststockdata/VCB,FPT,…` | One request covers every ticker. Returns last price, reference, ceiling, floor, volume. |
+| VN equities | `bgapidatafeed.vps.com.vn/getliststockdata/VCB,FPT,…` | One request covers every ticker. Returns last price, reference, ceiling, floor, volume — plus the day's high/low, the volume-weighted average (`avePrice`) and foreign buy/sell volume (`fBVol`/`fSVolume`), all shown on the detail card. Foreign flow is read in **shares**, never from `fBValue`/`fSValue`: measured against a real session, that pair's unit reconciles with neither dong nor thousands of dong. |
 | VN indices | `histdatafeed.vps.com.vn/tradingview/history?resolution=1` | TradingView UDF feed. 1-minute bars, so one request gives both the live value and the sparkline. |
 | VN reference | same, `resolution=1D` | Previous session's close. Cached for the day — it only changes overnight. |
 | Domestic gold | `edge-api.pnj.io/ecom-frontend/v1/get-gold-price` | PNJ's whole retail board in one request; `masp: "SJC"` is the bar. Prices are **thousands of dong per chỉ**, which nothing in the response says — see below. No previous close, and `?date=` is ignored. `updateDate` is a real publication time. |
 | USD/VND | `vietcombank.com.vn/api/exchangerates?date=2026-08-09` | The `sell` column. The sheet is carried forward on weekends and holidays, so the previous-day request for the reference never falls in a hole. `UpdatedDate` reads 23:00 on the requested date — in the future during a session — so it is not usable as `asOf`. |
-| Crypto | `api.binance.com/api/v3/ticker/24hr?symbols=[…]` | One request covers every pair. Reference is `openPrice` (24h rolling), matching Binance's own UI. |
+| Crypto | `api.binance.com/api/v3/ticker/24hr?symbols=[…]` | One request covers every pair. Reference is `openPrice` (24h rolling), matching Binance's own UI; `highPrice`/`lowPrice` are the same window's extremes. |
 | Crypto sparkline | `api.binance.com/api/v3/klines?interval=1m&limit=60` | Last hour of 1-minute candles. |
 | VN fundamentals | `iboard-api.ssi.com.vn/statistics/company/financial-indicator?symbol=VCB` | EPS and the P/E–P/B pair the book value is recovered from. Cached for the ICT day. |
 | World indices | `query1.finance.yahoo.com/v8/finance/chart/%5EDJI?range=1d&interval=1m` | One request per symbol, carrying the live value, the previous close and the minute bars for the sparkline. `range=1d` is load-bearing: at a longer range the previous close is the one before the *range*, not before today. `DX%2DY%2ENYB` works the same way — Yahoo decodes the path segment — and ICE delays it ten minutes. |
-| Spot gold | `scanner.tradingview.com/symbol?symbol=TVC%3AGOLD&fields=close,change_abs,volume` | Real-time (`update_mode: streaming`). No previous-close field, so the reference is `close - change_abs`. An unknown symbol is a clean 404. `time` is the start of the trading day, not the last print. |
+| Spot gold | `scanner.tradingview.com/symbol?symbol=TVC%3AGOLD&fields=close,change_abs,volume,high,low,high,low` | Real-time (`update_mode: streaming`). No previous-close field, so the reference is `close - change_abs`. An unknown symbol is a clean 404. `time` is the start of the trading day, not the last print. |
 | Spot gold sparkline | `api.investing.com/api/financialdata/68/historical/chart/?period=P1D&interval=PT1M&pointscount=120` | Pair `68` is spot XAU/USD (`8830` is the COMEX future). Requires a `domain-id: www` header — without it, a 500 that reads like an outage. `pointscount` is validated against `{60,70,90,110,120,140,160}` but not honoured: the answer is always the last 288 one-minute bars, rolling. An unknown pair is a 500, not a 404. |
 
 The VPS and SSI endpoints are the JSON services behind those brokers' own public web boards. They need no
@@ -374,7 +374,7 @@ Sources/
     Panel/                       PanelHeader, SymbolList, QuoteRow, Sparkline,
                                  QuoteDetailCard, AddSymbolField, SettingsFooter
   App/StockBarApp.swift        NSStatusItem + NSPopover, entry point
-Tests/StockBarCoreTests/       145 tests over Sources/Core
+Tests/StockBarCoreTests/       148 tests over Sources/Core
 Tools/probe.sh                 exercises the data layer from the command line
 Tools/uisnap.sh                renders the popover to a PNG (no Screen Recording permission needed)
 Tools/makeicon.sh              regenerates AppIcon.icns from BrandMark (the .icns is committed)

@@ -72,7 +72,11 @@ struct CryptoQuoteSource: QuoteSource {
                 ceiling: nil,       // no daily limit band on a crypto venue
                 floor: nil,
                 volume: HTTP.num(row["volume"]),
-                asOf: now
+                asOf: now,
+                // The extremes of the same rolling 24-hour window `openPrice` starts — one convention for
+                // the whole row, so the range and the change describe the same stretch of time.
+                high: HTTP.num(row["highPrice"]),
+                low: HTTP.num(row["lowPrice"])
             )
         }
     }

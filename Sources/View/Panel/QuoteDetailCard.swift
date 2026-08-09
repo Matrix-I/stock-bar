@@ -77,6 +77,12 @@ struct QuoteDetailCard: View {
                         .font(Theme.Fonts.detailValue)
                         .monospacedDigit()
                         .foregroundStyle(CardStyle.value)
+                        // Shrink before wrapping: a crypto range ("64,730.08–65,192.54") is the widest
+                        // value a card can carry, and wrapped onto a second line it made that one row
+                        // double-height, knocking every row below it out of line with the other column.
+                        // A slightly smaller number is legible; two misaligned columns are not.
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.75)
                 }
             }
         }

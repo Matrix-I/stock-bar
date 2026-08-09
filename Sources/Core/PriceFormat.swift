@@ -146,6 +146,13 @@ enum PriceFormat {
         return String(format: "%.0f", v)
     }
 
+    /// A signed order-of-magnitude volume, for net flows: "+132k" bought, "−46k" sold. Through `volume`
+    /// so a flow and the session volume beside it abbreviate identically, and with the same U+2212 the
+    /// change figures use. Zero is "0", unsigned — flat is flat, not a small positive.
+    static func netVolume(_ shares: Double) -> String {
+        sign(of: shares) + volume(abs(shares))
+    }
+
     /// "just now" / "2m ago" / "14:31" for the as-of stamp under each row. Anything older than an hour
     /// prints the clock time instead of a duration, because "73m ago" is harder to reason about than
     /// "13:18" when you're deciding whether the feed is stuck.

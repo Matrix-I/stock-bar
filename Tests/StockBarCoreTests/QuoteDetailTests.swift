@@ -34,6 +34,54 @@ struct QuoteDetailTests {
         #expect(rows.map(\.value) == ["57,800", "50,400", "54,100", "2.1M", "12.97", "2.03", "just now"])
     }
 
+    @Test("The enrichment fields each add a row, in board order, and vanish with their data")
+    func enrichedEquity() {
+        // The full board row: the day's extremes, the volume-weighted average, and the net foreign flow.
+        // Values pinned exactly, because two of them are easy to corrupt silently — High and Low swapped
+        // read as a market that closed outside its own range, and a net flow without its sign reads as
+        // buying whichever way it went.
+        let full = Quote(symbol: "VCB", market: .vietnam, price: 54_600, reference: 54_100,
+                         ceiling: 57_800, floor: 50_400, volume: 2_072_300, asOf: now,
+                         high: 55_000, low: 53_900, average: 54_480, foreignNet: -45_895)
+        let rows = QuoteDetail.rows(for: entry("VCB", .vietnam), quote: full,
+                                    fundamentals: vcbFundamentals, now: now)
+        #expect(rows.map(\.label) == ["Ceiling", "Floor", "Reference", "High", "Low", "Avg price",
+                                      "Volume", "Foreign", "P/E", "P/B", "Updated"])
+        #expect(rows.first { $0.label == "High" }?.value == "55,000")
+        #expect(rows.first { $0.label == "Low" }?.value == "53,900")
+        #expect(rows.first { $0.label == "Avg price" }?.value == "54,480")
+        #expect(rows.first { $0.label == "Foreign" }?.value == "−46k")
+
+        // Each extreme is its own fact and its own row, so a feed reporting only one shows that one
+        // rather than losing both.
+        let halfRange = Quote(symbol: "VCB", market: .vietnam, price: 54_600, reference: 54_100,
+                              ceiling: nil, floor: nil, volume: nil, asOf: now, high: 55_000)
+        let sparse = QuoteDetail.rows(for: entry("VCB", .vietnam), quote: halfRange, now: now)
+        #expect(sparse.map(\.label).contains("High"))
+        #expect(!sparse.map(\.label).contains("Low"))
+    }
+
+    @Test("Crypto's extremes name their window, because its session is a rolling day")
+    func cryptoRange() {
+        let btc = Quote(symbol: "BTCUSDT", market: .crypto, price: 64_785, reference: 65_010,
+                        ceiling: nil, floor: nil, volume: 5_388, asOf: now,
+                        high: 65_192.54, low: 64_730.08)
+        let rows = QuoteDetail.rows(for: entry("BTCUSDT", .crypto), quote: btc, now: now)
+        // Next to a "24h open", an unlabelled High would invite comparing a day's extreme against a
+        // session's — same shape, different window.
+        #expect(rows.map(\.label) == ["24h open", "24h high", "24h low", "Volume", "Updated"])
+        #expect(rows.first { $0.label == "24h high" }?.value == "65,192.54")
+        #expect(rows.first { $0.label == "24h low" }?.value == "64,730.08")
+    }
+
+    @Test("A net flow keeps its sign, and zero is flat rather than a small positive")
+    func netVolumeFormat() {
+        #expect(PriceFormat.netVolume(132_407) == "+132k")
+        #expect(PriceFormat.netVolume(-45_895) == "\u{2212}46k")
+        #expect(PriceFormat.netVolume(0) == "0")
+        #expect(PriceFormat.netVolume(-2_400_000) == "\u{2212}2.4M")
+    }
+
     @Test("P/E and P/B stay adjacent, so the card cannot split them across its two columns")
     func ratiosAreAdjacent() {
         // The card fills its first column and then its second. Whatever the row count, the two ratios have

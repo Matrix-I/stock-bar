@@ -113,6 +113,13 @@ actor VPSQuoteSource: QuoteSource {
             // meaningful number, so fall back to it rather than dropping the row (a watched ticker
             // vanishing from the list looks like a bug).
             let ref = HTTP.num(row["r"])
+            // Net foreign flow, in shares. The board also reports it in value (fBValue/fSValue), and that
+            // pair is deliberately not read: measured against a real session its unit reconciles with
+            // neither dong nor thousands of dong, and a figure whose unit cannot be pinned down would be
+            // shown wrong with complete confidence. Share counts have no unit to get wrong.
+            let foreignBought = HTTP.num(row["fBVol"])
+            let foreignSold = HTTP.num(row["fSVolume"])
+            let foreignNet = foreignBought.flatMap { b in foreignSold.map { b - $0 } }
             return Quote(
                 symbol: sym.uppercased(),
                 market: .vietnam,
@@ -121,7 +128,14 @@ actor VPSQuoteSource: QuoteSource {
                 ceiling: HTTP.num(row["c"]).map { $0 * 1000 },
                 floor: HTTP.num(row["f"]).map { $0 * 1000 },
                 volume: HTTP.num(row["lot"]),
-                asOf: now
+                asOf: now,
+                // Same unit as every other price on this row — thousands of dong — and the same ×1000.
+                // avePrice is the session's volume-weighted average, checked against the range it must sit
+                // inside (60.18 between 58.7 and 60.8 on the session it was probed on).
+                high: HTTP.num(row["highPrice"]).map { $0 * 1000 },
+                low: HTTP.num(row["lowPrice"]).map { $0 * 1000 },
+                average: HTTP.num(row["avePrice"]).map { $0 * 1000 },
+                foreignNet: foreignNet
             )
         }
     }

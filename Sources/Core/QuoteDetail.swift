@@ -55,7 +55,34 @@ enum QuoteDetail {
             rows.append(Row(label: label, value: price(reference, isIndex: entry.isIndex)))
         }
 
+        // The session's traded extremes, two rows and not one "low–high" range. That was tried: a crypto
+        // range ("64,730.08–65,192.54") is wider than a card column, and neither wrapping (a double-height
+        // row knocking the two columns out of line) nor shrinking (still ellipsised at 0.75×) survived
+        // contact with it. Two rows fit at any magnitude, and it is how a Vietnamese board prints the pair
+        // anyway. High first, matching those boards. Crypto's labels name the window, because its "session"
+        // is a rolling day and an unlabelled extreme next to a "24h open" invites the wrong comparison.
+        if let high = quote.high {
+            rows.append(Row(label: quote.market == .crypto ? "24h high" : "High",
+                            value: price(high, isIndex: entry.isIndex)))
+        }
+        if let low = quote.low {
+            rows.append(Row(label: quote.market == .crypto ? "24h low" : "Low",
+                            value: price(low, isIndex: entry.isIndex)))
+        }
+
+        // Where the day's business was actually done, volume-weighted. Only the VN board computes one; it
+        // answers whether the current print is above or below the crowd's average fill.
+        if let average = quote.average {
+            rows.append(Row(label: "Avg price", value: price(average, isIndex: entry.isIndex)))
+        }
+
         if let volume = quote.volume { rows.append(Row(label: "Volume", value: PriceFormat.volume(volume))) }
+
+        // Khối ngoại: net foreign buying, in shares, signed. The one number on a Vietnamese board that
+        // this card was missing entirely — the session's direction is routinely read off it.
+        if let net = quote.foreignNet {
+            rows.append(Row(label: "Foreign", value: PriceFormat.netVolume(net)))
+        }
 
         // Volume goes ABOVE the ratios, which reads a little oddly here and is right on screen. The card
         // fills its first column and then its second, so with all seven rows present a P/E left at position

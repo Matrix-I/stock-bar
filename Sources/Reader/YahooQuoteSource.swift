@@ -95,7 +95,9 @@ struct YahooQuoteSource: QuoteSource {
             // The feed's own timestamp for the last print, not the fetch time. It is real-time during a
             // session (measured: 0–4 seconds behind), and out of hours it is the close — which is what makes
             // the panel able to say a Tokyo row was last updated at 15:45 JST rather than "just now".
-            asOf: chart.asOf ?? Date()
+            asOf: chart.asOf ?? Date(),
+            high: chart.high,
+            low: chart.low
         )
     }
 
@@ -105,6 +107,8 @@ struct YahooQuoteSource: QuoteSource {
         let previousClose: Double?
         let volume: Double?
         let asOf: Date?
+        let high: Double?
+        let low: Double?
         let closes: [Double]
     }
 
@@ -138,6 +142,8 @@ struct YahooQuoteSource: QuoteSource {
             previousClose: HTTP.num(meta["previousClose"]) ?? HTTP.num(meta["chartPreviousClose"]),
             volume: HTTP.num(meta["regularMarketVolume"]),
             asOf: HTTP.num(meta["regularMarketTime"]).map { Date(timeIntervalSince1970: $0) },
+            high: HTTP.num(meta["regularMarketDayHigh"]),
+            low: HTTP.num(meta["regularMarketDayLow"]),
             closes: Self.closes(from: result)
         )
     }

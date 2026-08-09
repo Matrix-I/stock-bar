@@ -154,6 +154,10 @@ where it used to be) makes the gesture fail on the biggest target in the row.
   from the midnight rebase — applied to a row with no reference, that rebase manufactures the very flat
   reading the missing reference exists to avoid. `WatchedSymbol.hasPerShareFundamentals` is the matching
   guard on the other side: SSI answers for "SJC" with some other company's figures.
+- **Foreign flow is shares, never value.** The board's `fBValue`/`fSValue` pair has a unit that does not
+  reconcile — measured against a real session it is neither dong nor thousands of dong — so
+  `Quote.foreignNet` is built from `fBVol`/`fSVolume` only. A number whose unit cannot be verified is not
+  shown; this is the gold-gap rule applied to a smaller number.
 - **`.world` is a bucket of venues AND of feeds, not one of either.** `Market` picks a source, but that
   source is now `WorldQuoteSource`, a router: Yahoo's chart endpoint serves the Dow, the Nasdaq, the Nikkei
   and the dollar index, while TradingView's scanner serves spot gold, because Yahoo carries no spot gold at

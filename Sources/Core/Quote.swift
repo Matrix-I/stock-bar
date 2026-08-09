@@ -56,6 +56,47 @@ struct Quote: Sendable, Identifiable {
     /// When this quote was observed — used to grey out a stale row when a fetch has been failing.
     let asOf: Date
 
+    /// The session's traded range so far — the day for an exchange, the rolling 24 hours for crypto,
+    /// whichever the feed's own convention is. Every feed this app reads publishes the pair in the same
+    /// response the price came from, so carrying it costs no extra request; it is simply data that used
+    /// to be thrown away.
+    let high: Double?
+    let low: Double?
+
+    /// Volume-weighted average traded price for the session, where the venue computes one (the VN board's
+    /// `avePrice`). The number that says whether the current print is above or below where the day's
+    /// actual business was done.
+    let average: Double?
+
+    /// Net foreign buying this session, in SHARES, signed: positive bought, negative sold. VN equities
+    /// only — khối ngoại is a fixture of every Vietnamese board, and no other market here reports it.
+    ///
+    /// Shares and not value, deliberately. The board also carries fBValue/fSValue, but their unit does not
+    /// reconcile: for a session where 132k shares traded around 60,000 VND the buy value read 7.98e7,
+    /// which is neither dong (100× too small) nor thousands (10× too large). A number whose unit cannot be
+    /// verified is not shown — the same rule the gold gap was built under.
+    let foreignNet: Double?
+
+    /// Memberwise, with the enrichment fields defaulted. Written out because the synthesised initialiser
+    /// would demand all four at every call site, and most sources have only some of them to give.
+    init(symbol: String, market: Market, price: Double, reference: Double?,
+         ceiling: Double?, floor: Double?, volume: Double?, asOf: Date,
+         high: Double? = nil, low: Double? = nil,
+         average: Double? = nil, foreignNet: Double? = nil) {
+        self.symbol = symbol
+        self.market = market
+        self.price = price
+        self.reference = reference
+        self.ceiling = ceiling
+        self.floor = floor
+        self.volume = volume
+        self.asOf = asOf
+        self.high = high
+        self.low = low
+        self.average = average
+        self.foreignNet = foreignNet
+    }
+
     /// Absolute move against `reference`. nil when no reference is available, in which case the view
     /// shows the bare price with no arrow.
     var change: Double? {
@@ -137,7 +178,11 @@ struct Quote: Sendable, Identifiable {
     /// says which session that was.
     func rebasedForPendingSession(at now: Date) -> Quote {
         guard !isFromCurrentSession(at: now) else { return self }
+        // The range, average and foreign flow stay for the same reason volume does: they are facts about
+        // the finished session, `asOf` says which session that was, and unlike the band they are not read
+        // back into `band` — keeping them cannot recolour the row.
         return Quote(symbol: symbol, market: market, price: price, reference: price,
-                     ceiling: nil, floor: nil, volume: volume, asOf: asOf)
+                     ceiling: nil, floor: nil, volume: volume, asOf: asOf,
+                     high: high, low: low, average: average, foreignNet: foreignNet)
     }
 }

@@ -34,7 +34,8 @@ struct TradingViewQuoteSource: QuoteSource {
 
     private static let base = "https://scanner.tradingview.com/symbol"
     /// Everything one row needs, and nothing else. The endpoint returns precisely the fields asked for.
-    private static let fields = "close,change_abs,volume"
+    /// `high`/`low` are the current trading day's — the one that began at the 18:00 New York rollover.
+    private static let fields = "close,change_abs,volume,high,low"
 
     func fetchQuotes(for symbols: [String]) async throws -> [Quote] {
         guard !symbols.isEmpty else { return [] }
@@ -114,7 +115,9 @@ struct TradingViewQuoteSource: QuoteSource {
             // The fetch time, deliberately, because the feed's own `time` is the start of the trading day
             // and not the last print — see the header. The reading really is current to the second while
             // the market is open, which is the claim `asOf` is making.
-            asOf: Date()
+            asOf: Date(),
+            high: HTTP.num(object["high"]),
+            low: HTTP.num(object["low"])
         )
     }
 }
