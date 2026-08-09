@@ -197,6 +197,29 @@ Both value and cost convert at **today's** rate, so the percentage is the instru
 dong, with the currency's move factored out. Cost converted at the rate on the day of purchase would be the
 fuller answer and needs a purchase date and a rate history this app does not keep.
 
+**The index rows carry market breadth**, which no upstream publishes. Every candidate was probed and none
+answers — VPS's board host has no index endpoint at all, SSI's iBoard API answers "Request not found" for
+every statistics path, VNDirect's finfo has no breadth resource — so `VNINDEX` and `HNXINDEX` count it:
+advancers, decliners, unchanged, and the stocks that have not traded at all.
+
+It comes from two sources and the split is the point. **Which stocks** is VNDirect's finfo, once per ICT day
+(`v4/stocks?q=type:STOCK~floor:HOSE~status:listed`) — membership moves on the order of weeks, and `type:STOCK`
+excludes the ETFs, funds and warrants no board counts. **What they cost** is the VPS board, the app's own
+price source, in one request for all of them; using VNDirect for prices too would be one request fewer and
+would let this app's `VNINDEX` breadth disagree with its own `VCB` row. The two were checked against each
+other first and agreed exactly: 176 up and 143 down for HOSE on the same session, counted independently.
+
+**Untraded is its own count, not folded into unchanged.** Of 404 HOSE tickers, 39 had no matched price; a
+three-way count would report them as flat and imply a market with far more indecision than there was. That
+distinction also caught a real bug on the way in — the price path drops a row whose last price is zero,
+because a watched row rendering `0` and −100% is worse than one keeping its last good value, and counting
+through it reported HOSE as 365 constituents with zero untraded. `VN30` deliberately gets no breadth line:
+it is thirty of those four hundred and this app has no membership list for it, so HOSE's count under a VN30
+row would be a wrong denominator that renders perfectly.
+
+It is fetched only while the panel is open and cached for a minute — a whole floor's board is about 400 KB,
+the heaviest request the app makes, and it backs four lines on one card.
+
 **Adding a symbol checks it with the venue first.** Neither upstream rejects a bad ticker outright — the
 Vietnamese board just omits the row and Binance answers `400` — so a typo used to join the list and render
 a dash forever, indistinguishable from a feed that was down. The add field now asks for a quote before
@@ -392,7 +415,7 @@ Sources/
     Panel/                       PanelHeader, SymbolList, QuoteRow, Sparkline,
                                  QuoteDetailCard, AddSymbolField, SettingsFooter
   App/StockBarApp.swift        NSStatusItem + NSPopover, entry point
-Tests/StockBarCoreTests/       158 tests over Sources/Core
+Tests/StockBarCoreTests/       163 tests over Sources/Core
 Tools/probe.sh                 exercises the data layer from the command line
 Tools/uisnap.sh                renders the popover to a PNG (no Screen Recording permission needed)
 Tools/makeicon.sh              regenerates AppIcon.icns from BrandMark (the .icns is committed)

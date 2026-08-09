@@ -123,6 +123,12 @@ where it used to be) makes the gesture fail on the biggest target in the row.
   user revokes permanently. `AlertEngine.evaluate` returns the updated watchlist alongside the firings
   because a rearm changes state while announcing nothing; dropping that write is what silently turns
   "once" into "every minute".
+- **`VPSQuoteSource` has two board paths and they differ on purpose.** `fetchQuotes` drops a stock whose
+  `lastPrice` is 0 (a watched row must never render as `0` and −100%); `fetchBoardRows` keeps it, because
+  breadth must count an untraded stock or the denominator every ratio is measured against silently shrinks.
+  Counting HOSE through the price path gave 365 constituents and zero untraded where the floor had 404 and
+  39 — both render perfectly and only one is true. Reach for `fetchBoardRows` whenever you are COUNTING
+  rather than DRAWING.
 - **The portfolio total is the only thing here that adds two rows together, so it is built out of
   refusals.** `Currency.of(symbol:market:)` names every row's unit — the Nikkei is yen, and folding it in
   as dollars is a 150× error that still renders plausibly — and `Portfolio.total` excludes what it cannot

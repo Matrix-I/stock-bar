@@ -103,6 +103,8 @@ struct DetailCardOverlay: View {
         QuoteDetail.rows(for: entry,
                          quote: reader.quotes[entry.id],
                          fundamentals: reader.fundamentals[entry.id] ?? .none,
+                         // By floor, so two index rows on one floor read the same count.
+                         breadth: Breadth.floor(for: entry.symbol).flatMap { reader.breadth[$0] },
                          // The whole cache, for the one card that shows its working: the gap's inputs are
                          // other rows' quotes, fetched for it whether or not they are watched.
                          context: reader.quotes)

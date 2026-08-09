@@ -112,6 +112,28 @@ struct Probe {
             }
         }
 
+        // Breadth, which is counted here rather than fetched — see BreadthSource. Printed with the raw
+        // counts and the total, because the one way this goes wrong invisibly is a denominator that no
+        // longer matches the floor's real listing count.
+        let floors = Set(requested.compactMap { Breadth.floor(for: $0.0) })
+        if !floors.isEmpty {
+            print(String(repeating: "\u{2500}", count: 78))
+            let breadthFeed = BreadthSource()
+            for floor in floors.sorted() {
+                do {
+                    let t0 = Date()
+                    let b = try await breadthFeed.breadth(for: floor)
+                    let ratio = b.advanceDeclineRatio.map { String(format: "%.2f", $0) } ?? "—"
+                    print(String(format: "breadth %@: %d up / %d down / %d flat / %d no-trade  "
+                                 + "(total %d, A/D %@) in %.2fs",
+                                 floor, b.up, b.down, b.unchanged, b.untraded, b.total, ratio,
+                                 Date().timeIntervalSince(t0)))
+                } catch {
+                    print("breadth \(floor): ✗ \(error.localizedDescription)")
+                }
+            }
+        }
+
         // Trailing per-share figures, which back the P/E and P/B in the detail card. Printed with the
         // recovered book value and both ratios spelled out, because a ratio that looks wrong on screen is
         // only diagnosable if you can see which of the three inputs it came from — and because the feed's

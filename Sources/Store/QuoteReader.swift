@@ -53,6 +53,10 @@ final class QuoteReader: ObservableObject {
     /// Vietnamese equities have them; everything else stays absent, which the card simply renders fewer
     /// rows for.
     @Published private(set) var fundamentals: [String: Fundamentals] = [:]
+    /// Advancers and decliners per FLOOR — "HOSE", "HNX" — behind the breadth line on an index card.
+    /// Keyed by floor rather than by row id because two index rows can summarise the same floor, and
+    /// counting it twice would be two 400 KB requests for one number.
+    @Published private(set) var breadth: [String: Breadth] = [:]
     /// Human-readable description of the most recent failure, cleared by the next success. Shown as a
     /// footer in the popover rather than an alert — a transient fetch failure is not worth a modal.
     @Published private(set) var lastError: String?
@@ -70,6 +74,7 @@ final class QuoteReader: ObservableObject {
     private let crypto = CryptoQuoteSource()
     private let world = WorldQuoteSource()
     private let fundamentalsFeed = FundamentalsSource()
+    private let breadthFeed = BreadthSource()
     private let notifier = AlertNotifier()
 
     private lazy var poll = PollingTimer { [weak self] in self?.refresh() }
@@ -295,6 +300,7 @@ final class QuoteReader: ObservableObject {
             if wantHistory {
                 await self.refreshHistory(for: symbols)
                 await self.refreshFundamentals(for: symbols)
+                await self.refreshBreadth(for: symbols)
             }
 
             self.inFlight = false
@@ -433,6 +439,35 @@ final class QuoteReader: ObservableObject {
             return out
         }
         for (id, value) in results { fundamentals[id] = value }
+    }
+
+    /// Count advancers and decliners for every floor an index row on the list summarises.
+    ///
+    /// Panel-only, like the sparklines and for a stronger version of the same reason: this is the heaviest
+    /// request the app makes — a whole floor's board, some 400 KB — and it backs one line on one card. The
+    /// source caches for a minute on top of that, so opening and closing the panel repeatedly costs one
+    /// fetch rather than one per visit.
+    ///
+    /// By floor and not by row, so VNINDEX and a second HOSE index on the same list share one count.
+    /// Errors are swallowed as everywhere else here: a missing breadth line is not worth a message beside
+    /// prices that arrived fine.
+    private func refreshBreadth(for symbols: [WatchedSymbol]) async {
+        let floors = Set(symbols.compactMap { Breadth.floor(for: $0.symbol) })
+        guard !floors.isEmpty else { return }
+        let feed = breadthFeed
+
+        let results = await withTaskGroup(of: (String, Breadth)?.self) { group in
+            for floor in floors {
+                group.addTask {
+                    guard let value = try? await feed.breadth(for: floor) else { return nil }
+                    return (floor, value)
+                }
+            }
+            var out: [(String, Breadth)] = []
+            for await r in group { if let r { out.append(r) } }
+            return out
+        }
+        for (floor, value) in results { breadth[floor] = value }
     }
 
     /// Pick the polling interval from whether anything being watched is currently trading. Idempotent —

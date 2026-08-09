@@ -32,6 +32,7 @@ enum QuoteDetail {
     static func rows(for entry: WatchedSymbol,
                      quote: Quote?,
                      fundamentals: Fundamentals = .none,
+                     breadth: Breadth? = nil,
                      context: [String: Quote] = [:],
                      now: Date = Date()) -> [Row] {
         guard let quote else { return [] }
@@ -103,6 +104,20 @@ enum QuoteDetail {
         }
 
         if let volume = quote.volume { rows.append(Row(label: "Volume", value: PriceFormat.volume(volume))) }
+
+        // Advancers and decliners, on the index rows that have a floor to summarise. Two lines rather than
+        // one "212 / 145 / 43" triple: the counts are what a board prints beside coloured arrows, and a
+        // slash-separated run of three numbers makes the reader work out which is which. Untraded gets its
+        // own line only when there are any, since outside a session that is the whole floor and inside one
+        // it is the tail nobody has bid for.
+        if let breadth {
+            rows.append(Row(label: "\(breadth.floor) up", value: "\(breadth.up)"))
+            rows.append(Row(label: "\(breadth.floor) down", value: "\(breadth.down)"))
+            rows.append(Row(label: "Unchanged", value: "\(breadth.unchanged)"))
+            if breadth.untraded > 0 {
+                rows.append(Row(label: "No trade", value: "\(breadth.untraded)"))
+            }
+        }
 
         // Khối ngoại: net foreign buying, in shares, signed. The one number on a Vietnamese board that
         // this card was missing entirely — the session's direction is routinely read off it. The room

@@ -92,7 +92,17 @@ actor VPSQuoteSource: QuoteSource {
 
     // MARK: - Equities
 
-    private func fetchBoard(_ symbols: [String]) async throws -> [Quote] {
+    /// The board rows for `symbols` as quotes, WITH the ones that have not traded: a stock that has not
+    /// matched today reports `lastPrice` 0, and such a row comes back with `price` 0 rather than being
+    /// dropped.
+    ///
+    /// Separate from `fetchBoard` because the two callers want opposite things and one of them is not
+    /// obvious. A watched row must never render as "0" and −100%, so the price path filters those out.
+    /// Breadth must count them: an untraded stock is a fact about the session, and dropping it shrinks the
+    /// denominator every ratio is measured against — which is exactly the bug this split fixes. Counting
+    /// HOSE through the price path reported 365 constituents and zero untraded where the floor had 404 and
+    /// 46, and the number rendered perfectly.
+    func fetchBoardRows(_ symbols: [String]) async throws -> [Quote] {
         // The path segment is a comma-separated ticker list. Tickers are A-Z/0-9 only, so no escaping
         // is needed beyond the join; we uppercase because the endpoint is case-sensitive and returns
         // [] for lowercase input.
@@ -105,13 +115,8 @@ actor VPSQuoteSource: QuoteSource {
 
         let now = Date()
         return rows.compactMap { row -> Quote? in
-            guard let sym = row["sym"] as? String,
-                  let last = HTTP.num(row["lastPrice"]), last > 0
-            else { return nil }
+            guard let sym = row["sym"] as? String, let last = HTTP.num(row["lastPrice"]) else { return nil }
 
-            // A stock that hasn't traded yet today reports lastPrice 0; the reference is then the only
-            // meaningful number, so fall back to it rather than dropping the row (a watched ticker
-            // vanishing from the list looks like a bug).
             let ref = HTTP.num(row["r"])
             // Net foreign flow, in shares. The board also reports it in value (fBValue/fSValue), and that
             // pair is deliberately not read: measured against a real session its unit reconciles with
@@ -148,6 +153,15 @@ actor VPSQuoteSource: QuoteSource {
                 ask: bestAsk?.price, askSize: bestAsk?.size
             )
         }
+    }
+
+    /// The board rows worth DRAWING: everything above, minus the stocks that have not matched today.
+    ///
+    /// A row whose `lastPrice` is 0 would render as a price of zero against a live reference — a −100%
+    /// day on a stock nobody has traded. Dropping it leaves the panel showing the last good quote it
+    /// already had, which is the truth, and a symbol with no quote at all keeps its dash.
+    private func fetchBoard(_ symbols: [String]) async throws -> [Quote] {
+        try await fetchBoardRows(symbols).filter { $0.price > 0 }
     }
 
     /// One order-book level, as the board spells it: `"59.7|2860|i"` — price in thousands, size in
