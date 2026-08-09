@@ -142,8 +142,18 @@ checkable.
 `SJC` and `GOLDGAP` show a **bare price with no change figure**, because PNJ publishes no previous close and
 ignores a date parameter; inventing a baseline for them would be worse than omitting one. `USDVND` does have
 one — VCB's endpoint takes a date and carries its sheet forward across weekends and holidays, so yesterday's
-rate is always one request away. None of the three has a sparkline: they are step functions published a
-handful of times a day, with no series behind them.
+rate is always one request away. None of the three has a sparkline from a feed — they are step functions published a handful of times a
+day, with no series behind them — so **the app records its own**. Every poll writes down a price that
+differs from the last one it saw, capped at 120 points and persisted, and the sparkline draws from that
+once two points exist. A chart that nobody publishes therefore builds itself over days of the app simply
+running, and the gold gap over *time* is a more interesting number than the gap at one instant.
+
+Two consequences worth stating. It records **changes, not observations**: a rate sheet polled every minute
+for eight hours is 480 readings of four distinct values, and storing them all would fill the buffer with a
+flat line and push the real history out. And the x axis is therefore **not time** — the sparkline plots the
+sequence of distinct prices evenly, so three moves in an hour and three moves in three days look alike.
+For a staircase that is the honest shape; pretending to even sampling would mean inventing readings
+between the steps.
 
 They keep **shop hours, not HOSE's** — 08:30–17:00 ICT, Monday to Saturday, with no lunch break, since a
 jeweller does not close its board to eat. Their staleness allowance is eight hours rather than ninety
@@ -415,7 +425,7 @@ Sources/
     Panel/                       PanelHeader, SymbolList, QuoteRow, Sparkline,
                                  QuoteDetailCard, AddSymbolField, SettingsFooter
   App/StockBarApp.swift        NSStatusItem + NSPopover, entry point
-Tests/StockBarCoreTests/       163 tests over Sources/Core
+Tests/StockBarCoreTests/       170 tests over Sources/Core
 Tools/probe.sh                 exercises the data layer from the command line
 Tools/uisnap.sh                renders the popover to a PNG (no Screen Recording permission needed)
 Tools/makeicon.sh              regenerates AppIcon.icns from BrandMark (the .icns is committed)

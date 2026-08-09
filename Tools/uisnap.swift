@@ -81,7 +81,23 @@ struct UISnap {
                 watchlist.setAlert(entry, direction: .above, threshold: threshold, currentPrice: nil)
             }
         }
-        let reader = QuoteReader(watchlist: watchlist)
+        // STOCKBAR_UI_LOG=1 seeds the self-recorded series. SJC, USDVND and GOLDGAP draw a sparkline
+        // only after the app has watched them change over days, which a snapshot run has not — so the
+        // points are pushed through the real recorder rather than injected past it, and the PNG proves
+        // the merge in QuoteReader.history rather than a fixture.
+        let priceLogs = PriceLogStore()
+        if ProcessInfo.processInfo.environment["STOCKBAR_UI_LOG"] != nil {
+            let sjc = WatchedSymbol(symbol: "SJC", market: .vietnam, pinnedToMenuBar: false)
+            var when = Date().addingTimeInterval(-12 * 86400)
+            for price in [138_500_000.0, 139_200_000, 138_900_000, 140_100_000, 141_800_000,
+                          141_200_000, 142_600_000, 143_400_000, 143_100_000, 144_000_000] {
+                priceLogs.record([sjc], quotes: ["vietnam:SJC": Quote(
+                    symbol: "SJC", market: .vietnam, price: price, reference: nil,
+                    ceiling: nil, floor: nil, volume: nil, asOf: when)])
+                when = when.addingTimeInterval(86400)
+            }
+        }
+        let reader = QuoteReader(watchlist: watchlist, priceLogs: priceLogs)
         let updater = Updater()
 
         let host = NSHostingView(rootView: TickerPopover(

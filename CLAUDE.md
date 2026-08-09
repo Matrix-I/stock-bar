@@ -123,6 +123,12 @@ where it used to be) makes the gesture fail on the biggest target in the row.
   user revokes permanently. `AlertEngine.evaluate` returns the updated watchlist alongside the firings
   because a rearm changes state while announcing nothing; dropping that write is what silently turns
   "once" into "every minute".
+- **`QuoteReader.history` merges two sources and a feed always wins.** Fetched bars where a feed has
+  them, `PriceLog`'s recorded series where none exists (SJC, USDVND, GOLDGAP). Merged in the one computed
+  property rather than at the three call sites, so a row cannot draw a fetched chart in one place and a
+  recorded one in another. The recorder keeps a point only when the price CHANGES — a rate sheet polled
+  all day is hundreds of readings of four values, and storing observations instead of changes fills the
+  buffer with a flat line.
 - **`VPSQuoteSource` has two board paths and they differ on purpose.** `fetchQuotes` drops a stock whose
   `lastPrice` is 0 (a watched row must never render as `0` and −100%); `fetchBoardRows` keeps it, because
   breadth must count an untraded stock or the denominator every ratio is measured against silently shrinks.

@@ -46,9 +46,28 @@ final class QuoteReader: ObservableObject {
     /// once instead of at its next 1 Hz tick. It publishes the fetched dictionary rather than the drawn one
     /// because it is a signal, not a value — a subscriber that wants the numbers reads `quotes`.
     var quotesDidChange: Published<[String: Quote]>.Publisher { $lastGood }
-    /// Recent closes per `WatchedSymbol.id` for the popover sparklines. Only fetched while the popover
-    /// is open, since nothing else draws them.
-    @Published private(set) var history: [String: [Double]] = [:]
+    /// Recent closes per `WatchedSymbol.id`, as fetched from a feed. Only fetched while the popover is
+    /// open, since nothing else draws them. Private: read `history`, which also knows about the rows this
+    /// app records for itself.
+    @Published private var fetchedHistory: [String: [Double]] = [:]
+
+    /// What the sparklines draw: a feed's bars where a feed has them, and this app's own recorded series
+    /// where none exists — SJC, USDVND and the gold gap. See Core/PriceLog.swift.
+    ///
+    /// Merged here rather than at the three call sites, so a row cannot draw a fetched chart in one place
+    /// and a recorded one in another. A fetched series always wins: a feed that starts publishing bars for
+    /// a row this app was logging should take over immediately, and never be second-guessed by a shorter
+    /// home-made one.
+    var history: [String: [Double]] {
+        var merged = fetchedHistory
+        for (id, log) in priceLogs.logs.logs where merged[id]?.isEmpty != false {
+            let closes = log.closes
+            // Below two points Sparkline draws nothing anyway, and an entry here would only shadow a feed
+            // series that arrives later in the same session.
+            if closes.count >= 2 { merged[id] = closes }
+        }
+        return merged
+    }
     /// Trailing per-share figures per `WatchedSymbol.id`, behind the P/E and P/B in the detail card. Only
     /// Vietnamese equities have them; everything else stays absent, which the card simply renders fewer
     /// rows for.
@@ -75,6 +94,8 @@ final class QuoteReader: ObservableObject {
     private let world = WorldQuoteSource()
     private let fundamentalsFeed = FundamentalsSource()
     private let breadthFeed = BreadthSource()
+    /// The series this app records for the rows no feed gives one for — see Core/PriceLog.swift.
+    private let priceLogs: PriceLogStore
     private let notifier = AlertNotifier()
 
     private lazy var poll = PollingTimer { [weak self] in self?.refresh() }
@@ -91,8 +112,13 @@ final class QuoteReader: ObservableObject {
     private var wakeObserver: NSObjectProtocol?
     private var watchlistChanges: AnyCancellable?
 
-    init(watchlist: Watchlist) {
+    /// `priceLogs` is injectable so `Tools/uisnap.sh` can hand in a store backed by its own defaults
+    /// domain — without that, a snapshot run would append to the real app's recorded series.
+    /// Constructed in the body rather than as a default argument: a default is evaluated outside the
+    /// initialiser's actor isolation, and `PriceLogStore` is main-actor bound.
+    init(watchlist: Watchlist, priceLogs: PriceLogStore? = nil) {
         self.watchlist = watchlist
+        self.priceLogs = priceLogs ?? PriceLogStore()
 
         // Refresh the moment the lid opens. A Timer does not fire while the machine is asleep and does
         // not "catch up" on wake — it simply resumes on its original schedule, so without this the menu
@@ -352,18 +378,27 @@ final class QuoteReader: ObservableObject {
         for entry in symbols {
             if let q = byKey[entry.id] { lastGood[entry.id] = q }
         }
+        // Record the rows whose series this app has to keep for itself, before the derived values are
+        // computed — SJC and USDVND are two of them, and the third is the gap they produce, which has to
+        // be recorded from the merged result a few lines below rather than from anything fetched.
+        priceLogs.record(symbols, quotes: lastGood)
+
         // The computed rows, after the fetched ones and from the merged result rather than from this batch:
         // the gap's three inputs are on two different clocks, so on most ticks at least one of them was not
         // refetched and only `lastGood` has all three.
         for (id, q) in DerivedQuote.values(for: symbols, from: lastGood) { lastGood[id] = q }
+        // And again for the derived rows, which only exist after the line above. The recorder keeps a
+        // point only when the price differs from the last one, so calling it twice costs nothing.
+        priceLogs.record(symbols, quotes: lastGood)
 
         // Drop quotes for symbols no longer watched, so a removed row doesn't linger in the menu bar. The
         // set is the tracked list, not the visible one, so a derived row's inputs survive the prune that
         // runs the moment after they are fetched.
         let live = Set(symbols.map(\.id))
         lastGood = lastGood.filter { live.contains($0.key) }
-        history = history.filter { live.contains($0.key) }
+        fetchedHistory = fetchedHistory.filter { live.contains($0.key) }
         fundamentals = fundamentals.filter { live.contains($0.key) }
+        priceLogs.prune(keeping: live)
 
         if failures.isEmpty {
             lastError = nil
@@ -410,7 +445,7 @@ final class QuoteReader: ObservableObject {
             for await r in group { if let r { out.append(r) } }
             return out
         }
-        for (id, closes) in results { history[id] = closes }
+        for (id, closes) in results { fetchedHistory[id] = closes }
     }
 
     /// Fetch trailing per-share figures for the Vietnamese equities, concurrently. Errors are swallowed for
