@@ -41,10 +41,36 @@ enum MarketHours {
     private static let domesticOpen = 8 * 60 + 30
     private static let domesticClose = 17 * 60
 
-    private static var ictCalendar: Calendar {
+    /// A Gregorian calendar pinned to ICT. Internal rather than private because the daily caches in the
+    /// Reader layer need the same zone to ask their own date questions in, and rebuilding it there is how
+    /// the two spellings of `ict` got apart in the first place.
+    static var ictCalendar: Calendar {
         var cal = Calendar(identifier: .gregorian)
         cal.timeZone = ict
         return cal
+    }
+
+    /// Which ICT day a moment falls in — a number that compares, and deliberately nothing more.
+    ///
+    /// Every daily boundary in this app is this one question: the fundamentals cache, the daily-bar cache
+    /// and the breadth constituent list all expire when the trading day rolls over. Each had grown its own
+    /// way of asking, and collapsing them turned up that TWO OF THE THREE WERE ASKING THE WRONG ONE.
+    ///
+    /// `Calendar.ordinality(of: .day, in: .era, for:)` — which two of them used — ignores the calendar's
+    /// own time zone and counts days from UTC midnight, so on a calendar pinned to ICT it rolls over at
+    /// 17:00 Vietnamese time. Measured: 2026-08-05 23:59 and 2026-08-06 00:01 ICT return the same day, and
+    /// 2026-08-06 16:59 and 17:01 return different ones. The third copy formatted "yyyy-MM-dd" through a
+    /// DateFormatter, which does respect the zone, and was quietly the only correct one. Nothing on screen
+    /// could have shown the difference: an over-eager cache expiry just costs a request.
+    ///
+    /// `startOfDay` respects the zone, so this rolls at ICT midnight as the name says. Dividing by 86,400
+    /// is safe precisely because ICT has no DST — every start-of-day lands on the same offset, so the
+    /// number advances by exactly one per day.
+    ///
+    /// The day is the app's own, in ICT, and not the machine's. A laptop carried to another zone would
+    /// otherwise roll its caches over in the middle of a Vietnamese session.
+    static func tradingDay(at date: Date = Date()) -> Int {
+        Int(ictCalendar.startOfDay(for: date).timeIntervalSince1970) / 86_400
     }
 
     /// New York and Tokyo, from the system time-zone database rather than as fixed offsets — the opposite

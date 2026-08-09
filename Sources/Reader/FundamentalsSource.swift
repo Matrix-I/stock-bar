@@ -26,14 +26,6 @@ actor FundamentalsSource {
 
     private static let base = "https://iboard-api.ssi.com.vn/statistics/company/financial-indicator"
 
-    /// ICT, matching VPSQuoteSource: the reporting day these figures belong to rolls over in Vietnam, not
-    /// wherever the laptop happens to be.
-    private static var ictCalendar: Calendar {
-        var c = Calendar(identifier: .gregorian)
-        c.timeZone = MarketHours.ict
-        return c
-    }
-
     /// One entry per symbol, with the ICT day it was fetched for. Cached because these figures change once
     /// a quarter and the panel would otherwise re-ask for all of them every time it opens.
     ///
@@ -50,7 +42,7 @@ actor FundamentalsSource {
         // An index has no earnings and no book, and the feed says so with a round trip. Answer without one.
         guard !Ticker.isIndex(wanted) else { return .none }
 
-        let today = Self.ictCalendar.ordinality(of: .day, in: .era, for: Date()) ?? 0
+        let today = MarketHours.tradingDay()
         if let hit = cache[wanted], hit.day == today { return hit.value }
 
         var components = URLComponents(string: Self.base)!

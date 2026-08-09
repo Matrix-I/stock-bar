@@ -46,7 +46,7 @@ actor BreadthSource {
 
     private let board = VPSQuoteSource()
     /// Constituents per floor, with the ICT day they were fetched on — see the header for why daily.
-    private var listCache: [String: (day: String, codes: [String])] = [:]
+    private var listCache: [String: (day: Int, codes: [String])] = [:]
     private var breadthCache: [String: (at: Date, value: Breadth)] = [:]
 
     func breadth(for floor: String, now: Date = Date()) async throws -> Breadth {
@@ -75,7 +75,7 @@ actor BreadthSource {
     /// The day is the app's own trading day rather than the machine's, matching every other daily boundary
     /// here: a laptop in another zone would otherwise roll the cache over in the middle of a session.
     private func constituents(of floor: String, now: Date) async throws -> [String] {
-        let day = Self.ictDay(now)
+        let day = MarketHours.tradingDay(at: now)
         if let cached = listCache[floor], cached.day == day { return cached.codes }
 
         var components = URLComponents(string: Self.listBase)!
@@ -93,13 +93,5 @@ actor BreadthSource {
         // breadth" for the rest of the day over a single failed request.
         if !codes.isEmpty { listCache[floor] = (day, codes) }
         return codes
-    }
-
-    private static func ictDay(_ date: Date) -> String {
-        let f = DateFormatter()
-        f.locale = Locale(identifier: "en_US_POSIX")
-        f.timeZone = MarketHours.ict
-        f.dateFormat = "yyyy-MM-dd"
-        return f.string(from: date)
     }
 }

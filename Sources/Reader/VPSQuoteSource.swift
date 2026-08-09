@@ -46,15 +46,6 @@ actor VPSQuoteSource: QuoteSource {
     /// Daily bars are only needed for the reference close, so a month is ample even across Tết.
     private static let dailyWindow: TimeInterval = 30 * 86400
 
-    /// ICT. HOSE runs on it and Vietnam has no DST, so a fixed offset is exact — but the identifier is
-    /// used where available so a reader isn't left wondering whether the offset is right.
-    private static let ict = TimeZone(identifier: "Asia/Ho_Chi_Minh") ?? TimeZone(secondsFromGMT: 7 * 3600)!
-    private static var ictCalendar: Calendar {
-        var c = Calendar(identifier: .gregorian)
-        c.timeZone = ict
-        return c
-    }
-
     /// Daily bars per index symbol, with the ICT day they were fetched for. Refetched when the day rolls
     /// over: daily bars only change once a session, so caching turns two requests per index per minute
     /// into one.
@@ -203,7 +194,7 @@ actor VPSQuoteSource: QuoteSource {
 
     /// The daily bars, cached for the ICT day. They only change once a session.
     private func dailySeries(_ symbol: String) async throws -> Bars {
-        let today = Self.ictCalendar.ordinality(of: .day, in: .era, for: Date()) ?? 0
+        let today = MarketHours.tradingDay()
         if let hit = dailyCache[symbol], hit.day == today { return hit.bars }
         let fetched = try await bars(symbol: symbol, resolution: "1D", secondsBack: Self.dailyWindow)
         dailyCache[symbol] = (today, fetched)
@@ -218,7 +209,7 @@ actor VPSQuoteSource: QuoteSource {
     /// before the open, at a weekend, or whenever the daily feed hasn't published today's bar yet, and
     /// each of those cases silently compares against the wrong day and prints a wrong percentage.
     private func referenceClose(from daily: Bars, pricedAt priceTime: Date) -> Double? {
-        let cal = Self.ictCalendar
+        let cal = MarketHours.ictCalendar
         return daily.bars.last { !cal.isDate($0.time, inSameDayAs: priceTime) && $0.time < priceTime }?.close
     }
 
@@ -246,7 +237,7 @@ actor VPSQuoteSource: QuoteSource {
         /// whether that turns out to be today or last Friday.
         func lastSession() -> Bars {
             guard let end = bars.last else { return self }
-            let cal = VPSQuoteSource.ictCalendar
+            let cal = MarketHours.ictCalendar
             return Bars(bars: bars.filter { cal.isDate($0.time, inSameDayAs: end.time) })
         }
     }

@@ -266,4 +266,27 @@ struct MarketHoursTests {
         // machine with an incomplete time-zone database.
         #expect(MarketHours.ict.secondsFromGMT() == 7 * 3600)
     }
+
+    @Test("The trading day turns at ICT midnight, wherever the machine thinks it is")
+    func tradingDayTurnsInVietnam() {
+        // Three caches expire on this one answer: the fundamentals figures, the daily bars behind a
+        // reference close, and the breadth constituent list. Each used to compute it for itself.
+        let lateEvening = ict(2026, 8, 5, 23, 59)
+        let justAfter = ict(2026, 8, 6, 0, 1)
+        #expect(MarketHours.tradingDay(at: lateEvening) + 1 == MarketHours.tradingDay(at: justAfter))
+        // A whole ICT day is one number, from its first minute to its last.
+        #expect(MarketHours.tradingDay(at: ict(2026, 8, 6, 0, 0))
+                == MarketHours.tradingDay(at: ict(2026, 8, 6, 23, 58)))
+
+        // Pinned to a literal, so the boundary is fixed by this test rather than by whatever the
+        // implementation currently computes. 2026-08-06 00:00 ICT is 2026-08-05 17:00 UTC, epoch
+        // 1,785,913,200, which floors to day 20,670.
+        #expect(MarketHours.tradingDay(at: ict(2026, 8, 6, 0, 0)) == 20_670)
+        #expect(MarketHours.tradingDay(at: ict(2026, 8, 5, 23, 59)) == 20_669)
+
+        // One thing this suite CANNOT check: that the zone is ICT rather than the machine's. This machine
+        // runs at +07:00, so `ictCalendar` and the system calendar are the same function here and a mutant
+        // swapping one for the other survives — correctly, and not for want of an assertion. What keeps it
+        // right is that `tradingDay` names its zone; what would catch it is running the suite abroad.
+    }
 }
