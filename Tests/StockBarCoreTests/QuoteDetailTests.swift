@@ -42,15 +42,23 @@ struct QuoteDetailTests {
         // buying whichever way it went.
         let full = Quote(symbol: "VCB", market: .vietnam, price: 54_600, reference: 54_100,
                          ceiling: 57_800, floor: 50_400, volume: 2_072_300, asOf: now,
-                         high: 55_000, low: 53_900, average: 54_480, foreignNet: -45_895)
+                         high: 55_000, low: 53_900, average: 54_480,
+                         foreignNet: -45_895, foreignRoom: 82_155_290,
+                         bid: 54_500, bidSize: 2_860, ask: 54_700, askSize: 510)
         let rows = QuoteDetail.rows(for: entry("VCB", .vietnam), quote: full,
                                     fundamentals: vcbFundamentals, now: now)
-        #expect(rows.map(\.label) == ["Ceiling", "Floor", "Reference", "High", "Low", "Avg price",
-                                      "Volume", "Foreign", "P/E", "P/B", "Updated"])
+        #expect(rows.map(\.label) == ["Ceiling", "Floor", "Reference", "High", "Low", "Bid", "Ask",
+                                      "Avg price", "Volume", "Foreign", "F. room",
+                                      "P/E", "P/B", "Updated"])
         #expect(rows.first { $0.label == "High" }?.value == "55,000")
         #expect(rows.first { $0.label == "Low" }?.value == "53,900")
+        // Price first, size behind the separator — and through the same volume abbreviation as the
+        // Volume row, so 2,860 shares reads "3k" in both places or in neither.
+        #expect(rows.first { $0.label == "Bid" }?.value == "54,500 · 3k")
+        #expect(rows.first { $0.label == "Ask" }?.value == "54,700 · 510")
         #expect(rows.first { $0.label == "Avg price" }?.value == "54,480")
         #expect(rows.first { $0.label == "Foreign" }?.value == "−46k")
+        #expect(rows.first { $0.label == "F. room" }?.value == "82.2M")
 
         // Each extreme is its own fact and its own row, so a feed reporting only one shows that one
         // rather than losing both.
@@ -65,13 +73,74 @@ struct QuoteDetailTests {
     func cryptoRange() {
         let btc = Quote(symbol: "BTCUSDT", market: .crypto, price: 64_785, reference: 65_010,
                         ceiling: nil, floor: nil, volume: 5_388, asOf: now,
-                        high: 65_192.54, low: 64_730.08)
+                        high: 65_192.54, low: 64_730.08,
+                        bid: 64_790, bidSize: 12.33, ask: 64_790.01, askSize: 3.95)
         let rows = QuoteDetail.rows(for: entry("BTCUSDT", .crypto), quote: btc, now: now)
         // Next to a "24h open", an unlabelled High would invite comparing a day's extreme against a
         // session's — same shape, different window.
-        #expect(rows.map(\.label) == ["24h open", "24h high", "24h low", "Volume", "Updated"])
+        #expect(rows.map(\.label) == ["24h open", "24h high", "24h low", "Bid", "Ask",
+                                      "Volume", "Updated"])
         #expect(rows.first { $0.label == "24h high" }?.value == "65,192.54")
         #expect(rows.first { $0.label == "24h low" }?.value == "64,730.08")
+        // Fractional sizes survive: a top-of-book of 12.33 coins must not read "12k" or vanish.
+        #expect(rows.first { $0.label == "Bid" }?.value == "64,790.00 · 12")
+    }
+
+    @Test("The gold bar's bid is the dealer's buy-back, and says so")
+    func dealerBoard() {
+        // "Bid" under a shop's board would borrow an exchange's word for a jeweller's promise. The label
+        // is also what makes the dealer spread legible: 144,000,000 over "Buy back 141,000,000" reads as
+        // the three million dong it costs to change your mind.
+        let bar = Quote(symbol: "SJC", market: .vietnam, price: 144_000_000, reference: nil,
+                        ceiling: nil, floor: nil, volume: nil, asOf: now, bid: 141_000_000)
+        let rows = QuoteDetail.rows(for: entry("SJC", .vietnam), quote: bar, now: now)
+        #expect(rows.map(\.label) == ["Buy back", "Updated"])
+        #expect(rows.first { $0.label == "Buy back" }?.value == "141,000,000")
+        // And an exchange row keeps the exchange word — the label bends per venue, not per market.
+        let vcb = Quote(symbol: "VCB", market: .vietnam, price: 54_600, reference: nil,
+                        ceiling: nil, floor: nil, volume: nil, asOf: now, bid: 54_500)
+        #expect(QuoteDetail.rows(for: entry("VCB", .vietnam), quote: vcb, now: now)
+            .contains { $0.label == "Bid" })
+    }
+
+    @Test("The gap's card shows the subtraction it was born from, through the same formula")
+    func goldGapCard() {
+        // Inputs chosen so the expectations can be computed here independently: the card must agree with
+        // DerivedQuote about the conversion, and the premium must be measured against the CONVERTED price
+        // — against SJC it reads 4.0% instead of 4.2%, close enough to survive a glance and wrong.
+        let converted = DerivedQuote.worldPerLuong(spotUSD: 4_000, usdVND: 25_000)
+        let gap = Quote(symbol: "GOLDGAP", market: .vietnam, price: 144_000_000 - converted,
+                        reference: nil, ceiling: nil, floor: nil, volume: nil, asOf: now)
+        let context = [
+            "vietnam:SJC": Quote(symbol: "SJC", market: .vietnam, price: 144_000_000, reference: nil,
+                                 ceiling: nil, floor: nil, volume: nil, asOf: now),
+            "world:GOLD": Quote(symbol: "GOLD", market: .world, price: 4_000, reference: nil,
+                                ceiling: nil, floor: nil, volume: nil, asOf: now),
+            "vietnam:USDVND": Quote(symbol: "USDVND", market: .vietnam, price: 25_000, reference: nil,
+                                    ceiling: nil, floor: nil, volume: nil, asOf: now),
+        ]
+        let rows = QuoteDetail.rows(for: entry("GOLDGAP", .vietnam), quote: gap,
+                                    context: context, now: now)
+        #expect(rows.map(\.label) == ["SJC", "Spot in VND", "USDVND", "Premium", "Updated"])
+        #expect(rows.first { $0.label == "SJC" }?.value == "144,000,000")
+        #expect(rows.first { $0.label == "Spot in VND" }?.value
+                == PriceFormat.price(converted, market: .vietnam, isIndex: false))
+        #expect(rows.first { $0.label == "Premium" }?.value
+                == PriceFormat.percent((144_000_000 - converted) / converted * 100))
+
+        // Without the inputs there is no working to show, and a partial subtraction is not shown either —
+        // the same all-or-nothing rule the gap's own value keeps. Partial specifically, not just empty:
+        // each missing input must kill the block on its own, or a fallback quietly substituting one quote
+        // for another would survive every test that only ever removes all three at once.
+        let bare = QuoteDetail.rows(for: entry("GOLDGAP", .vietnam), quote: gap, now: now)
+        #expect(bare.map(\.label) == ["Updated"])
+        for missing in context.keys {
+            var partial = context
+            partial[missing] = nil
+            let rows = QuoteDetail.rows(for: entry("GOLDGAP", .vietnam), quote: gap,
+                                        context: partial, now: now)
+            #expect(rows.map(\.label) == ["Updated"])
+        }
     }
 
     @Test("A net flow keeps its sign, and zero is flat rather than a small positive")

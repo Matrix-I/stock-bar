@@ -77,12 +77,27 @@ struct Quote: Sendable, Identifiable {
     /// verified is not shown — the same rule the gold gap was built under.
     let foreignNet: Double?
 
+    /// How much more foreigners may still buy, in shares (`fRoom`). The other half of the khối ngoại
+    /// story: a heavy net buy reads differently when the room is nearly gone.
+    let foreignRoom: Double?
+
+    /// The best resting quote on each side, where the venue has a book to read one from — the board's
+    /// `g1`/`g4`, Binance's top of book — or, for the gold bar, the dealer's buy-back price, which is the
+    /// same idea wearing a shop apron: the price at which the quoting institution will take the other
+    /// side. Sizes ride along where published; a bid without its size is half the information.
+    let bid: Double?
+    let bidSize: Double?
+    let ask: Double?
+    let askSize: Double?
+
     /// Memberwise, with the enrichment fields defaulted. Written out because the synthesised initialiser
-    /// would demand all four at every call site, and most sources have only some of them to give.
+    /// would demand all of them at every call site, and each source has only some of them to give.
     init(symbol: String, market: Market, price: Double, reference: Double?,
          ceiling: Double?, floor: Double?, volume: Double?, asOf: Date,
          high: Double? = nil, low: Double? = nil,
-         average: Double? = nil, foreignNet: Double? = nil) {
+         average: Double? = nil, foreignNet: Double? = nil, foreignRoom: Double? = nil,
+         bid: Double? = nil, bidSize: Double? = nil,
+         ask: Double? = nil, askSize: Double? = nil) {
         self.symbol = symbol
         self.market = market
         self.price = price
@@ -95,6 +110,11 @@ struct Quote: Sendable, Identifiable {
         self.low = low
         self.average = average
         self.foreignNet = foreignNet
+        self.foreignRoom = foreignRoom
+        self.bid = bid
+        self.bidSize = bidSize
+        self.ask = ask
+        self.askSize = askSize
     }
 
     /// Absolute move against `reference`. nil when no reference is available, in which case the view
@@ -178,11 +198,13 @@ struct Quote: Sendable, Identifiable {
     /// says which session that was.
     func rebasedForPendingSession(at now: Date) -> Quote {
         guard !isFromCurrentSession(at: now) else { return self }
-        // The range, average and foreign flow stay for the same reason volume does: they are facts about
-        // the finished session, `asOf` says which session that was, and unlike the band they are not read
-        // back into `band` — keeping them cannot recolour the row.
+        // The range, average, foreign figures and closing book stay for the same reason volume does: they
+        // are facts about the finished session, `asOf` says which session that was, and unlike the band
+        // none of them is read back into `band` — keeping them cannot recolour the row.
         return Quote(symbol: symbol, market: market, price: price, reference: price,
                      ceiling: nil, floor: nil, volume: volume, asOf: asOf,
-                     high: high, low: low, average: average, foreignNet: foreignNet)
+                     high: high, low: low, average: average,
+                     foreignNet: foreignNet, foreignRoom: foreignRoom,
+                     bid: bid, bidSize: bidSize, ask: ask, askSize: askSize)
     }
 }

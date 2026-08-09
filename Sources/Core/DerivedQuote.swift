@@ -83,13 +83,20 @@ enum DerivedQuote {
     ///
     /// No reference, so no change figure: PNJ publishes no previous close, so any baseline for this would
     /// have to be invented. See the note in DomesticIndex.
+    /// The world spot price expressed in what SJC is priced in: VND per lượng. Public because the gap's
+    /// detail card shows the subtraction it was born from, and a card computing this conversion its own
+    /// way is two chances for the same formula to disagree with itself.
+    static func worldPerLuong(spotUSD: Double, usdVND: Double) -> Double {
+        spotUSD * GoldUnit.troyOuncesPerLuong * usdVND
+    }
+
     private static func goldGap(from quotes: [String: Quote]) -> Quote? {
         guard let sjc = quotes["vietnam:SJC"],
               let world = quotes["world:GOLD"],
               let rate = quotes["vietnam:USDVND"],
               sjc.price > 0, world.price > 0, rate.price > 0 else { return nil }
 
-        let worldPerLuong = world.price * GoldUnit.troyOuncesPerLuong * rate.price
+        let worldPerLuong = worldPerLuong(spotUSD: world.price, usdVND: rate.price)
         return Quote(
             symbol: goldGap,
             market: .vietnam,

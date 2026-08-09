@@ -59,7 +59,12 @@ struct PNJQuoteSource: QuoteSource {
             ceiling: nil,
             floor: nil,
             volume: nil,        // a shop's board, not a tape
-            asOf: Self.parseUpdateDate(root["updateDate"]) ?? Date()
+            asOf: Self.parseUpdateDate(root["updateDate"]) ?? Date(),
+            // The other side of the shop's board: what PNJ pays when buying the bar back, in the same
+            // unit as `giaban` and lifted the same way. Carried as the bid because that is what it is —
+            // the price at which the quoting institution takes the other side — and it is what makes the
+            // three-million-dong dealer spread visible on the card instead of implied.
+            bid: HTTP.num(bar["giamua"]).flatMap { $0 > 0 ? $0 * 1000 * GoldUnit.chiPerLuong : nil }
         )]
     }
 

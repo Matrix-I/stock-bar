@@ -120,6 +120,13 @@ actor VPSQuoteSource: QuoteSource {
             let foreignBought = HTTP.num(row["fBVol"])
             let foreignSold = HTTP.num(row["fSVolume"])
             let foreignNet = foreignBought.flatMap { b in foreignSold.map { b - $0 } }
+            // g1 is the best bid and g4 the best ask. Established from the shape, not documentation:
+            // on the session probed, g1–g3 stepped DOWN from the last price (59.7, 59.6, 59.5) and g4–g6
+            // stepped UP (59.8, 59.9, 60.0) — resting orders below the market are bids, above it asks,
+            // and each side leads with its best. Only the top level is read; the card is a label/value
+            // grid, and a three-level book wants a table it does not have.
+            let bestBid = Self.bookLevel(row["g1"])
+            let bestAsk = Self.bookLevel(row["g4"])
             return Quote(
                 symbol: sym.uppercased(),
                 market: .vietnam,
@@ -135,9 +142,24 @@ actor VPSQuoteSource: QuoteSource {
                 high: HTTP.num(row["highPrice"]).map { $0 * 1000 },
                 low: HTTP.num(row["lowPrice"]).map { $0 * 1000 },
                 average: HTTP.num(row["avePrice"]).map { $0 * 1000 },
-                foreignNet: foreignNet
+                foreignNet: foreignNet,
+                foreignRoom: HTTP.num(row["fRoom"]),
+                bid: bestBid?.price, bidSize: bestBid?.size,
+                ask: bestAsk?.price, askSize: bestAsk?.size
             )
         }
+    }
+
+    /// One order-book level, as the board spells it: `"59.7|2860|i"` — price in thousands, size in
+    /// shares, and a flag this app has no dictionary for. An empty side arrives as `"0|0|e"`, which the
+    /// `> 0` guard turns into nil rather than into a bid at zero.
+    private static func bookLevel(_ value: Any?) -> (price: Double, size: Double)? {
+        guard let text = value as? String else { return nil }
+        let parts = text.split(separator: "|")
+        guard parts.count >= 2,
+              let price = Double(parts[0]), price > 0,
+              let size = Double(parts[1]), size > 0 else { return nil }
+        return (price * 1000, size)
     }
 
     // MARK: - Indices

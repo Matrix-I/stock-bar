@@ -76,7 +76,10 @@ struct CryptoQuoteSource: QuoteSource {
                 // The extremes of the same rolling 24-hour window `openPrice` starts — one convention for
                 // the whole row, so the range and the change describe the same stretch of time.
                 high: HTTP.num(row["highPrice"]),
-                low: HTTP.num(row["lowPrice"])
+                low: HTTP.num(row["lowPrice"]),
+                // Top of book, sizes in base units. Live even when the ticker itself is quiet.
+                bid: HTTP.num(row["bidPrice"]), bidSize: HTTP.num(row["bidQty"]),
+                ask: HTTP.num(row["askPrice"]), askSize: HTTP.num(row["askQty"])
             )
         }
     }

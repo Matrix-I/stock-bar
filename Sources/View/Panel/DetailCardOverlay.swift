@@ -102,6 +102,9 @@ struct DetailCardOverlay: View {
     private func rows(for entry: WatchedSymbol) -> [QuoteDetail.Row] {
         QuoteDetail.rows(for: entry,
                          quote: reader.quotes[entry.id],
-                         fundamentals: reader.fundamentals[entry.id] ?? .none)
+                         fundamentals: reader.fundamentals[entry.id] ?? .none,
+                         // The whole cache, for the one card that shows its working: the gap's inputs are
+                         // other rows' quotes, fetched for it whether or not they are watched.
+                         context: reader.quotes)
     }
 }

@@ -26,15 +26,28 @@ enum QuoteDetail {
     ///
     /// Empty when there is no quote — the caller says so in its own words rather than being handed a row
     /// that is really a message.
+    /// `context` is every quote the reader currently holds, keyed by `WatchedSymbol.id`. Only the derived
+    /// row reads it: the gap's card shows the subtraction it was born from, and the three numbers being
+    /// subtracted belong to other rows.
     static func rows(for entry: WatchedSymbol,
                      quote: Quote?,
                      fundamentals: Fundamentals = .none,
+                     context: [String: Quote] = [:],
                      now: Date = Date()) -> [Row] {
         guard let quote else { return [] }
         var rows: [Row] = []
 
         func price(_ value: Double, isIndex: Bool = false) -> String {
             PriceFormat.price(value, market: quote.market, isIndex: isIndex)
+        }
+
+        /// One side of the book: the price, with its size behind a separator when one is published. The
+        /// size matters — a bid without it is half the information — but it stays subordinate: this is a
+        /// price row, not a volume row.
+        func depth(_ value: Double, size: Double?) -> String {
+            let base = price(value, isIndex: entry.isIndex)
+            guard let size, size > 0 else { return base }
+            return "\(base) · \(PriceFormat.volume(size))"
         }
 
         // The daily band, which only a Vietnamese equity has. These are the numbers a VN trader wants the
@@ -70,6 +83,19 @@ enum QuoteDetail {
                             value: price(low, isIndex: entry.isIndex)))
         }
 
+        // The best resting quote on each side. For the gold bar the "bid" is the dealer's buy-back price
+        // and says so — "Bid 141,000,000" under a shop's board would borrow an exchange's word for a
+        // jeweller's promise, and the label is what makes the three-million-dong spread against the price
+        // above it legible as a spread.
+        let isDealerBoard = DomesticIndex.listing(for: entry.symbol)?.venue == .pnj
+        if let bid = quote.bid {
+            rows.append(Row(label: isDealerBoard ? "Buy back" : "Bid",
+                            value: depth(bid, size: quote.bidSize)))
+        }
+        if let ask = quote.ask {
+            rows.append(Row(label: "Ask", value: depth(ask, size: quote.askSize)))
+        }
+
         // Where the day's business was actually done, volume-weighted. Only the VN board computes one; it
         // answers whether the current print is above or below the crowd's average fill.
         if let average = quote.average {
@@ -79,9 +105,30 @@ enum QuoteDetail {
         if let volume = quote.volume { rows.append(Row(label: "Volume", value: PriceFormat.volume(volume))) }
 
         // Khối ngoại: net foreign buying, in shares, signed. The one number on a Vietnamese board that
-        // this card was missing entirely — the session's direction is routinely read off it.
+        // this card was missing entirely — the session's direction is routinely read off it. The room
+        // left is its context: the same net buy reads differently when the limit is nearly reached.
         if let net = quote.foreignNet {
             rows.append(Row(label: "Foreign", value: PriceFormat.netVolume(net)))
+        }
+        if let room = quote.foreignRoom, room > 0 {
+            rows.append(Row(label: "F. room", value: PriceFormat.volume(room)))
+        }
+
+        // The derived row shows its working. A number nobody publishes is only trustworthy while the
+        // subtraction behind it is checkable, so the gap's card carries its three inputs and the premium —
+        // through the same conversion helper the gap itself was computed with, because two spellings of
+        // one formula is two chances for them to disagree.
+        if DerivedQuote.isDerived(entry.symbol),
+           let sjc = context["vietnam:SJC"],
+           let world = context["world:GOLD"],
+           let rate = context["vietnam:USDVND"] {
+            let converted = DerivedQuote.worldPerLuong(spotUSD: world.price, usdVND: rate.price)
+            rows.append(Row(label: "SJC", value: price(sjc.price)))
+            rows.append(Row(label: "Spot in VND", value: price(converted)))
+            rows.append(Row(label: "USDVND", value: price(rate.price)))
+            if converted > 0 {
+                rows.append(Row(label: "Premium", value: PriceFormat.percent(quote.price / converted * 100)))
+            }
         }
 
         // Volume goes ABOVE the ratios, which reads a little oddly here and is right on screen. The card
