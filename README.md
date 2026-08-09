@@ -66,8 +66,9 @@ quotes against a rolling 24 hours, not a session, so it has no midnight to obser
 
 The pencil turns on edit mode, which gives each row pin / move up / move down / remove. The sparkline
 hides while editing to make room — four controls plus a chart and a price don't fit on one row without
-truncating the change. Pinned symbols are drawn in watchlist order and only the first four get a slot,
-so reordering is also how you choose which ones appear.
+truncating the change. Pinned symbols are drawn in watchlist order, four at a time: with more than four
+pinned the menu bar **rotates through them**, advancing one symbol every eight seconds, so pinning six or
+eight no longer silently discards the overflow. Reordering is how you choose who leads the cycle.
 
 The symbol list **scrolls** once it grows past what the screen can hold — 90% of the display's usable
 height, measured on whichever display the popover actually opened on. Below that the panel is exactly as

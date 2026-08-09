@@ -119,8 +119,8 @@ struct SymbolList: View {
     /// Reorder. Stacked vertically so the pair costs one button's width instead of two — this row
     /// already carries a symbol, a price and two other buttons.
     ///
-    /// The order matters beyond the list: the menu bar renders pinned symbols in watchlist order and
-    /// keeps the first four, so reordering is also how you choose which pinned symbols get a slot.
+    /// The order matters beyond the list: the menu bar renders pinned symbols in watchlist order — four
+    /// at a time, rotating through the rest — so reordering is also how you choose who leads the cycle.
     private func reorderButtons(_ entry: WatchedSymbol, at index: Int) -> some View {
         VStack(spacing: 0) {
             reorderButton("chevron.up", disabled: index == 0) { watchlist.moveUp(entry) }

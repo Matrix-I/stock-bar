@@ -112,4 +112,41 @@ struct MenuBarLabelTests {
         #expect(label(pinned: [], quotes: [:]).hasNothingPinned)
         #expect(label(pinned: [btc], quotes: [:]).hasNothingPinned == false)
     }
+
+    @Test("Four or fewer pinned rows never rotate, whatever the clock says")
+    func windowIsStaticAtOrUnderTheCap() {
+        // The common case has to keep today's behaviour exactly: a menu bar that reshuffles two pinned
+        // symbols every eight seconds is churn with no information in it, and every offset the wall clock
+        // can produce must land on the same window or the 1 Hz equality gate stops saving the redraws.
+        let four = ["VNINDEX", "VCB", "BTCUSDT", "GOLD"].map {
+            WatchedSymbol(symbol: $0, market: .vietnam, pinnedToMenuBar: true)
+        }
+        for offset in [0, 1, 3, 17, 9_999] {
+            #expect(MenuBarLabel.visibleWindow(of: four, at: offset) == four)
+        }
+        #expect(MenuBarLabel.visibleWindow(of: Array(four.prefix(2)), at: 5) == Array(four.prefix(2)))
+        #expect(MenuBarLabel.visibleWindow(of: [], at: 3).isEmpty)
+    }
+
+    @Test("Past the cap the window advances one symbol per step and wraps")
+    func windowRotates() {
+        let six = ["A1", "B2", "C3", "D4", "E5", "F6"].map {
+            WatchedSymbol(symbol: $0, market: .vietnam, pinnedToMenuBar: true)
+        }
+        let names = { (offset: Int) in
+            MenuBarLabel.visibleWindow(of: six, at: offset).map(\.symbol)
+        }
+        // One step, one symbol: the leftmost drops, the next joins on the right. Advancing by the whole
+        // window instead would blink every symbol out after one step — each must survive four.
+        #expect(names(0) == ["A1", "B2", "C3", "D4"])
+        #expect(names(1) == ["B2", "C3", "D4", "E5"])
+        // The wrap, which is where an off-by-one lives if one lives anywhere: the window reaching the end
+        // of the list continues from its front rather than shrinking or crashing.
+        #expect(names(4) == ["E5", "F6", "A1", "B2"])
+        // A full cycle returns home, so the offset can grow without bound — it is a clock, not an index.
+        #expect(names(6) == names(0))
+        #expect(names(9_999 % 6) == names(9_999))
+        // Negative-safe: a caller counting steps from an epoch it hasn't reached yet must not trap.
+        #expect(names(-1) == ["F6", "A1", "B2", "C3"])
+    }
 }

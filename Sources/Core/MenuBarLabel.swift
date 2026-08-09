@@ -29,6 +29,33 @@ struct MenuBarLabel: Equatable, Sendable {
     /// The appearance the neutral parts are baked for — see the file header.
     let isDark: Bool
 
+    /// The most pinned rows the bar draws at once. The cap used to silently discard everything past the
+    /// fourth pin; now it only bounds what shows simultaneously, and the overflow rotates through. The
+    /// number itself is unchanged, and for the same reason as ever: more at once pushes the app's own
+    /// item off the far left of a crowded menu bar, where macOS truncates it without saying so.
+    static let maxVisible = 4
+
+    /// How long each rotation step holds. Long enough to read every price in the window at a glance,
+    /// short enough that eight pinned symbols cycle in about a minute — the same order of time as the
+    /// data refresh, so nothing shown is a full cycle stale by the time it comes round again.
+    static let rotationInterval: TimeInterval = 8
+
+    /// The slice of `pinned` the bar should show at `offset` rotation steps.
+    ///
+    /// With `maxVisible` or fewer pinned this is the identity, whatever the offset — the common case
+    /// keeps today's behaviour exactly, static and free of churn. Past that, a wrapping window advances
+    /// one symbol per step: the leftmost drops off and the next pinned row joins on the right, so each
+    /// symbol stays readable for `maxVisible` consecutive steps rather than blinking in and out.
+    ///
+    /// Pure in `offset` so the schedule stays out of Core: the caller derives it from the wall clock,
+    /// and a test hands in whatever step it wants to assert on. Negative-safe because a caller counting
+    /// from an arbitrary epoch may legitimately be behind it.
+    static func visibleWindow(of pinned: [WatchedSymbol], at offset: Int) -> [WatchedSymbol] {
+        guard pinned.count > maxVisible else { return pinned }
+        let start = ((offset % pinned.count) + pinned.count) % pinned.count
+        return (0..<maxVisible).map { pinned[(start + $0) % pinned.count] }
+    }
+
     /// Build the label for the pinned rows.
     ///
     /// `staleIDs` is passed in rather than computed here because staleness depends on the wall clock,

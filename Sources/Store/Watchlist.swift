@@ -55,11 +55,12 @@ final class Watchlist: ObservableObject {
         if let stored, let repaired, !repaired.isEmpty, repaired != stored.symbols { save() }
     }
 
-    /// The rows rendered in the menu bar, in watchlist order. Capped so a user who pins everything
-    /// can't push the app's own item off the far left of the menu bar (macOS silently truncates the
-    /// overflow, which reads as the app being broken rather than as a limit being hit).
+    /// Every pinned row, in watchlist order. The cap that used to live here — first four, rest silently
+    /// dropped — moved to `MenuBarLabel.maxVisible`, where it bounds what draws at ONCE rather than what
+    /// participates: past four pins the menu bar rotates through the whole list instead of discarding
+    /// the overflow. This store just says what is pinned; scheduling is not its business.
     var pinned: [WatchedSymbol] {
-        symbols.filter(\.pinnedToMenuBar).prefix(4).map { $0 }
+        symbols.filter(\.pinnedToMenuBar)
     }
 
     func add(_ symbol: String, market: Market) {

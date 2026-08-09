@@ -150,7 +150,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// shows has changed. Deciding *what* to draw is MenuBarLabel's job and drawing it is
     /// MenuBarGlyph's; this only wires the two to the status item.
     private func refreshLabel() {
-        let label = MenuBarLabel.make(pinned: watchlist.pinned,
+        // The rotation step comes from the wall clock, not from a counter this class would have to own:
+        // the label already rebuilds at 1 Hz and redraws only on inequality, so deriving the offset here
+        // makes the window advance on schedule with no new timer and no new state. Integer division
+        // holds each step for the whole interval.
+        let offset = Int(Date().timeIntervalSinceReferenceDate / MenuBarLabel.rotationInterval)
+        let label = MenuBarLabel.make(pinned: MenuBarLabel.visibleWindow(of: watchlist.pinned, at: offset),
                                       quotes: reader.quotes,
                                       staleIDs: reader.staleIDs,
                                       showChange: showChangeInMenuBar,
