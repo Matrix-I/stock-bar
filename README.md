@@ -181,10 +181,21 @@ Value; **P/L stays absent until there is a basis to measure against**, because w
 "profit" is the entire market value and would render as a spectacular gain on a position nobody has
 finished entering.
 
-**There is deliberately no portfolio total.** Summing these means adding dong to dollars, and while the app
-could now convert — `USDVND` is a row it carries — a total is a different feature with a different failure
-mode: one stale rate quietly re-pricing everything you own. A per-row profit is useful on its own in a way
-half a total is not.
+**Everything held totals into one VND figure**, on a line under the list. It converts through the app's own
+`USDVND` row — the same number drawn on the panel, from Vietcombank's sheet — and not through a rate fetched
+privately for the sum, because a total priced off an invisible rate is one nobody can check. USDT is counted
+as a dollar; the line says so in its tooltip.
+
+The total is built out of refusals as much as arithmetic. A row whose currency it cannot convert is **left
+out and counted**, never guessed at — the Nikkei prints in yen at around 61,000, and folding that in as
+dollars would be a 150-fold error rendering as a plausible number, so `Currency` names every row's unit and
+the summary reports how many were dropped. With no `USDVND` yet, the dong holdings still total and the
+dollar ones are reported missing. The total is also as old as its stalest ingredient, the rate included, and
+dims with the rows it sums.
+
+Both value and cost convert at **today's** rate, so the percentage is the instruments' own move expressed in
+dong, with the currency's move factored out. Cost converted at the rate on the day of purchase would be the
+fuller answer and needs a purchase date and a rate history this app does not keep.
 
 **Adding a symbol checks it with the venue first.** Neither upstream rejects a bad ticker outright — the
 Vietnamese board just omits the row and Binance answers `400` — so a typo used to join the list and render
@@ -381,7 +392,7 @@ Sources/
     Panel/                       PanelHeader, SymbolList, QuoteRow, Sparkline,
                                  QuoteDetailCard, AddSymbolField, SettingsFooter
   App/StockBarApp.swift        NSStatusItem + NSPopover, entry point
-Tests/StockBarCoreTests/       150 tests over Sources/Core
+Tests/StockBarCoreTests/       158 tests over Sources/Core
 Tools/probe.sh                 exercises the data layer from the command line
 Tools/uisnap.sh                renders the popover to a PNG (no Screen Recording permission needed)
 Tools/makeicon.sh              regenerates AppIcon.icns from BrandMark (the .icns is committed)

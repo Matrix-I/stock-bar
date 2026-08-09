@@ -92,6 +92,12 @@ struct TickerPopover: View {
     /// and Quit would be just as far away.
     private var footer: some View {
         VStack(alignment: .leading, spacing: 0) {
+            // Above the add field and the divider, so the total sits directly under the rows it sums
+            // rather than among the settings. Absent when nothing is held, which is most watchlists.
+            if let portfolio = reader.portfolio {
+                PortfolioSummary(portfolio: portfolio, stale: reader.isPortfolioStale)
+                    .padding(.top, Theme.Space.addTop)
+            }
             if editing {
                 AddSymbolField(reader: reader, watchlist: watchlist)
                     .padding(.top, Theme.Space.addTop)

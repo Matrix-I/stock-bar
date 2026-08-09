@@ -123,6 +123,12 @@ where it used to be) makes the gesture fail on the biggest target in the row.
   user revokes permanently. `AlertEngine.evaluate` returns the updated watchlist alongside the firings
   because a rearm changes state while announcing nothing; dropping that write is what silently turns
   "once" into "every minute".
+- **The portfolio total is the only thing here that adds two rows together, so it is built out of
+  refusals.** `Currency.of(symbol:market:)` names every row's unit — the Nikkei is yen, and folding it in
+  as dollars is a 150× error that still renders plausibly — and `Portfolio.total` excludes what it cannot
+  convert AND counts the exclusions, because a total quietly missing a position reads as a complete
+  answer. It converts through the `USDVND` row the panel draws, never a private rate, and inherits the age
+  of its stalest input including that rate.
 - **A holding refuses to answer more often than it answers.** `Core/Holding.swift` returns nil for both
   profit figures unless quantity AND average cost are positive: with a basis of zero the profit equals the
   whole market value, which renders as an enormous gain on a position whose cost has simply not been typed

@@ -109,6 +109,9 @@ struct WorldIndex: Sendable, Equatable {
     /// Where the sparkline's bars come from. Defaults to the price feed, which is the answer for every row
     /// whose upstream publishes a series.
     let bars: WorldBars
+    /// What this row's price is denominated in. Defaulted to dollars because four of the five are, and
+    /// named on the fifth because the Nikkei is not — see `Currency`.
+    let currency: Currency
     let exchange: WorldExchange
     /// Other spellings accepted at the Add field, resolved to `symbol` before anything is stored. Only
     /// unambiguous ones: `DOW` is missing on purpose, because it is a real NYSE ticker (Dow Inc.) and
@@ -120,11 +123,12 @@ struct WorldIndex: Sendable, Equatable {
     /// `bars` last and defaulted, so the four rows that take their sparkline from their own price feed do
     /// not each have to say so.
     init(symbol: String, feed: WorldFeed, feedSymbol: String, exchange: WorldExchange,
-         aliases: [String], bars: WorldBars = .fromPriceFeed) {
+         aliases: [String], bars: WorldBars = .fromPriceFeed, currency: Currency = .usd) {
         self.symbol = symbol
         self.feed = feed
         self.feedSymbol = feedSymbol
         self.bars = bars
+        self.currency = currency
         self.exchange = exchange
         self.aliases = aliases
     }
@@ -141,8 +145,12 @@ extension WorldIndex {
                    exchange: .newYork, aliases: ["^DJI", "DJIA"]),
         WorldIndex(symbol: "IXIC", feed: .yahoo, feedSymbol: "^IXIC",
                    exchange: .newYork, aliases: ["^IXIC", "NASDAQ"]),
+        // The one row in this app that is not priced in dollars or dong. At ~61,000 yen it looks like a
+        // dollar figure and is not one, which is exactly why the currency is written down rather than
+        // inferred: a portfolio total that folded this in as dollars would be out by a factor of 150 and
+        // would still render as a believable number.
         WorldIndex(symbol: "NI225", feed: .yahoo, feedSymbol: "^N225",
-                   exchange: .tokyo, aliases: ["^N225", "N225", "NIKKEI"]),
+                   exchange: .tokyo, aliases: ["^N225", "N225", "NIKKEI"], currency: .jpy),
         // Gold: the one row that is neither an index nor on Yahoo — see the file header. XAU is the metal's
         // own ISO code, which a trader is as likely to type as "GOLD"; GC=F stays an alias because someone
         // asking for the future by name still means this row, and there is only one gold price here.

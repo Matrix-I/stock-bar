@@ -59,6 +59,17 @@ struct UISnap {
                 watchlist.setHoldingCost(entry, cost)
             }
         }
+        // STOCKBAR_UI_TOTAL=1 puts positions on several rows across two currencies, so the portfolio
+        // summary and its conversion can be rendered — it is absent for every watchlist that holds
+        // nothing, which is the shipped default and everything a snapshot tool can otherwise produce.
+        if ProcessInfo.processInfo.environment["STOCKBAR_UI_TOTAL"] != nil {
+            watchlist.add("USDVND", market: .vietnam)
+            for (symbol, qty, cost) in [("VCB", 1_200.0, 58_400.0), ("BTCUSDT", 0.5, 60_000.0)] {
+                guard let entry = watchlist.symbols.first(where: { $0.symbol == symbol }) else { continue }
+                watchlist.setHoldingQuantity(entry, qty)
+                watchlist.setHoldingCost(entry, cost)
+            }
+        }
         // STOCKBAR_UI_ALERT=VCB:60000 puts a threshold on a row, because the bell indicator and the filled
         // bell in edit mode only appear when one is set, and neither can be produced by a snapshot tool
         // that cannot type into a field. `currentPrice: nil` keeps the alert armed whatever the price is

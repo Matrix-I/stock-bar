@@ -161,6 +161,23 @@ final class QuoteReader: ObservableObject {
         return Date().timeIntervalSince(q.asOf) > allowance
     }
 
+    /// Every position added into one VND figure, or nil when nothing convertible is held — see Portfolio.
+    ///
+    /// Computed on read rather than stored, for the same reason `quotes` is: it is a function of the
+    /// watchlist and the cache, both of which already publish, so a stored copy would be a third thing to
+    /// keep in step with them. Reads `quotes` and not `lastGood`, so the total is built from the same
+    /// numbers the rows above it are drawing.
+    var portfolio: Portfolio? {
+        Portfolio.total(for: watchlist.symbols, quotes: quotes)
+    }
+
+    /// Whether any row feeding the total is stale, so the summary dims with the rows it sums rather than
+    /// standing at full contrast over a board that has visibly stopped.
+    var isPortfolioStale: Bool {
+        watchlist.symbols.contains { $0.holding?.isEmpty == false && isStale($0.id) }
+            || isStale("vietnam:USDVND")
+    }
+
     /// Every currently stale id, for the menu-bar label. Passed as a set rather than having MenuBarLabel
     /// call `isStale` itself: that keeps the wall clock out of the pure layer, so a label can be compared
     /// for equality and asserted on in a test.

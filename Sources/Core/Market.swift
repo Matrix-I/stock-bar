@@ -69,6 +69,34 @@ extension Market {
     }
 }
 
+/// What a row's numbers are denominated in. Only the portfolio total reads this, and it exists because
+/// that total is the first thing in the app to add two rows together — everything else formats one row at
+/// a time, where the unit is whatever the feed said and never has to be named.
+///
+/// The Nikkei is why this is not simply "VN is dong and everything else is dollars": it prints in YEN, at
+/// around 61,000, so folding it into a dollar total would be a 150-fold error that still renders as a
+/// plausible number. `Currency` is the type that makes that mistake impossible to make silently.
+enum Currency: String, Sendable, Equatable, CaseIterable {
+    case vnd
+    case usd
+    /// Carried so the Nikkei can be NAMED rather than guessed at, and then excluded: this app has no
+    /// yen rate, and inventing one is worse than leaving the row out of a total and saying so.
+    case jpy
+
+    /// The currency a row's `Quote.price` is in.
+    static func of(symbol: String, market: Market) -> Currency {
+        switch market {
+        // Every Vietnamese row — the board, the gold bar, the dollar rate, the gap — prints dong.
+        case .vietnam: return .vnd
+        // USDT, treated as a dollar. It is a peg and not an identity, and the panel says so where the
+        // total is drawn; at the tenth of a percent it holds to, naming it would cost more attention
+        // than it saves.
+        case .crypto:  return .usd
+        case .world:   return WorldIndex.listing(for: symbol)?.currency ?? .usd
+        }
+    }
+}
+
 /// Facts about a ticker string that hold before any quote for it exists.
 enum Ticker {
     /// Whether a symbol names an index rather than a tradable stock — or, for the one row in the world
