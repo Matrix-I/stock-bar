@@ -7,6 +7,38 @@
     <language>en</language>
     <!-- APPCAST_ITEMS: update_appcast.sh prepends each release's <item> immediately below this line. -->
     <item>
+      <title>Version 1.2.0</title>
+      <pubDate>Sun, 09 Aug 2026 16:27:32 +0700</pubDate>
+      <sparkle:version>1.2.0</sparkle:version>
+      <sparkle:shortVersionString>1.2.0</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
+      <description><![CDATA[Changes since v1.1.0.
+
+### Added
+
+- carry domestic gold, the dollar rate and the gap between them
+- notify when a price crosses a threshold
+- carry a position on a row and show its profit
+- show the day's extremes, the average fill and the foreign flow
+- top of book, foreign room, the dealer spread, and the gap's working
+- rotate through the pinned symbols past the first four
+
+### Install
+
+1. Open the `.dmg` and drag **StockBar** into Applications.
+2. The app is ad-hoc signed, not notarized, so Gatekeeper will refuse to open it. Clear the
+   quarantine flag once:
+
+   ```bash
+   xattr -dr com.apple.quarantine /Applications/StockBar.app
+   ```
+
+3. Launch it. The ticker appears in the menu bar — there is no Dock icon and no window.
+
+Requires macOS 13 Ventura or later. Building from source needs only the Xcode Command Line Tools.]]></description>
+      <enclosure url="https://github.com/Matrix-I/stock-bar/releases/download/v1.2.0/StockBar-1.2.0.dmg" sparkle:edSignature="gU/Jn4dwPa1h4s/MZeOVQSMiCM+5SI5ZTWg+w0dMSD0Q8XY74OSkwsQfL9TQXf4JYrMGRVQtMKHX+G+k7i4IDA==" length="2145623" type="application/octet-stream" />
+    </item>
+    <item>
       <title>Version 1.1.0</title>
       <pubDate>Sun, 09 Aug 2026 11:06:54 +0700</pubDate>
       <sparkle:version>1.1.0</sparkle:version>
