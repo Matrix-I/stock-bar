@@ -40,36 +40,9 @@ struct YahooQuoteSource: QuoteSource {
     private static let base = "https://query1.finance.yahoo.com/v8/finance/chart/"
 
     func fetchQuotes(for symbols: [String]) async throws -> [Quote] {
-        guard !symbols.isEmpty else { return [] }
-
-        // Concurrently, and keeping each symbol's outcome: a 404 means "no such symbol" and must not be
-        // reported as a failure, while a transport error must — see the throw below.
-        let results = await withTaskGroup(of: Result<Quote?, Error>.self) { group in
-            for symbol in symbols {
-                group.addTask {
-                    do {
-                        return .success(try await self.fetchOne(symbol))
-                    } catch QuoteError.noData {
-                        // The symbol is not listed. Nothing to show for it, nothing wrong with the feed.
-                        return .success(nil)
-                    } catch {
-                        return .failure(error)
-                    }
-                }
-            }
-            var out: [Result<Quote?, Error>] = []
-            for await r in group { out.append(r) }
-            return out
-        }
-
-        let quotes = results.compactMap { try? $0.get() }.compactMap { $0 }
-        // Surface a dead feed instead of silently keeping yesterday's rows. Only when NOTHING came back:
-        // one index failing while the others answer is not worth a message under the panel, and the row
-        // ages visibly by itself.
-        if quotes.isEmpty, let failure = results.compactMap({ $0.failure }).first {
-            throw failure
-        }
-        return quotes
+        // One request each, because the multi-symbol endpoint wants a scraped crumb — see the header. The
+        // fan-out and its two-kinds-of-failure rule are in `fetchEachSymbol`, shared with the scanner.
+        try await fetchEachSymbol(symbols) { try await self.fetchOne($0) }
     }
 
     func fetchHistory(for symbol: String) async throws -> [Double] {

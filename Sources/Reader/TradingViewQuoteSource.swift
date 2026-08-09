@@ -38,33 +38,9 @@ struct TradingViewQuoteSource: QuoteSource {
     private static let fields = "close,change_abs,volume,high,low"
 
     func fetchQuotes(for symbols: [String]) async throws -> [Quote] {
-        guard !symbols.isEmpty else { return [] }
-
-        // One request per symbol, fanned out, keeping each outcome — the same shape as the Yahoo source
-        // and for the same reason: a 404 is a verdict on the symbol, a transport error is a verdict on the
-        // feed, and collapsing the two would either hide a typo or blame the network for one.
-        let results = await withTaskGroup(of: Result<Quote?, Error>.self) { group in
-            for symbol in symbols {
-                group.addTask {
-                    do {
-                        return .success(try await self.fetchOne(symbol))
-                    } catch QuoteError.noData {
-                        return .success(nil)
-                    } catch {
-                        return .failure(error)
-                    }
-                }
-            }
-            var out: [Result<Quote?, Error>] = []
-            for await r in group { out.append(r) }
-            return out
-        }
-
-        let quotes = results.compactMap { try? $0.get() }.compactMap { $0 }
-        if quotes.isEmpty, let failure = results.compactMap({ $0.failure }).first {
-            throw failure
-        }
-        return quotes
+        // One instrument per scanner request, fanned out by `fetchEachSymbol` — the same shape as the Yahoo
+        // source and, more to the point, the same rule about which failures are worth reporting.
+        try await fetchEachSymbol(symbols) { try await self.fetchOne($0) }
     }
 
     /// Nothing: the scanner publishes no series — see the header. Nothing routes here today, because the

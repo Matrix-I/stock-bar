@@ -60,11 +60,8 @@ final class QuoteReader: ObservableObject {
     /// home-made one.
     var history: [String: [Double]] {
         var merged = fetchedHistory
-        for (id, log) in priceLogs.logs.logs where merged[id]?.isEmpty != false {
-            let closes = log.closes
-            // Below two points Sparkline draws nothing anyway, and an entry here would only shadow a feed
-            // series that arrives later in the same session.
-            if closes.count >= 2 { merged[id] = closes }
+        for (id, closes) in priceLogs.recordedSeries where merged[id]?.isEmpty != false {
+            merged[id] = closes
         }
         return merged
     }
@@ -425,32 +422,40 @@ final class QuoteReader: ObservableObject {
         for firing in fired { notifier.post(firing) }
     }
 
-    /// Fetch sparkline history for every watched symbol, concurrently. Errors are swallowed: a missing
-    /// sparkline just draws nothing, and it is not worth surfacing next to a price that arrived fine.
+    /// Run one lookup per item concurrently and keep the answers that arrived, keyed by whatever the
+    /// lookup names them.
+    ///
+    /// The three panel-only enrichments below were the same twenty lines three times over. Extracted
+    /// because the interesting part is a policy rather than a mechanism, and a policy stated three times is
+    /// one that ends up meaning three things: EVERY FAILURE HERE IS SWALLOWED. A missing sparkline, ratio
+    /// or breadth line simply draws less, and none of them is worth a message under a panel whose prices
+    /// arrived perfectly well. That is the opposite of the rule in `fetchEachSymbol`, which is about
+    /// quotes — a row with no price is a row that cannot do its job, while a row with no chart is a row.
+    private func gather<Item: Sendable, Value: Sendable>(
+        _ items: [Item],
+        _ lookup: @escaping @Sendable (Item) async -> (String, Value)?
+    ) async -> [String: Value] {
+        await withTaskGroup(of: (String, Value)?.self) { group in
+            for item in items { group.addTask { await lookup(item) } }
+            var out: [String: Value] = [:]
+            for await result in group { if let result { out[result.0] = result.1 } }
+            return out
+        }
+    }
+
+    /// Fetch sparkline history for every watched symbol, concurrently.
     private func refreshHistory(for symbols: [WatchedSymbol]) async {
         // Each row's source is resolved up front so the task group captures values rather than self.
         let work = symbols.map { (entry: $0, source: source(for: $0.market)) }
-        let results = await withTaskGroup(of: (String, [Double])?.self) { group in
-            for (entry, source) in work {
-                group.addTask {
-                    do {
-                        let closes = try await source.fetchHistory(for: entry.symbol)
-                        return closes.isEmpty ? nil : (entry.id, closes)
-                    } catch {
-                        return nil
-                    }
-                }
-            }
-            var out: [(String, [Double])] = []
-            for await r in group { if let r { out.append(r) } }
-            return out
+        let fetched = await gather(work) { item -> (String, [Double])? in
+            guard let closes = try? await item.source.fetchHistory(for: item.entry.symbol),
+                  !closes.isEmpty else { return nil }
+            return (item.entry.id, closes)
         }
-        for (id, closes) in results { fetchedHistory[id] = closes }
+        fetchedHistory.merge(fetched) { _, new in new }
     }
 
-    /// Fetch trailing per-share figures for the Vietnamese equities, concurrently. Errors are swallowed for
-    /// the same reason as the sparklines: a missing ratio just leaves two rows out of a detail card, and it
-    /// is not worth a message beside a price that arrived fine.
+    /// Fetch trailing per-share figures for the Vietnamese equities, concurrently.
     ///
     /// Called on every panel refresh even though the figures change once a quarter. FundamentalsSource
     /// caches per ICT day, so this costs one request per equity per day and nothing after that — and going
@@ -460,20 +465,11 @@ final class QuoteReader: ObservableObject {
         let wanted = symbols.filter(\.hasPerShareFundamentals)
         guard !wanted.isEmpty else { return }
 
-        let results = await withTaskGroup(of: (String, Fundamentals)?.self) { group in
-            for entry in wanted {
-                group.addTask {
-                    guard let value = try? await feed.fetch(for: entry.symbol), !value.isEmpty else {
-                        return nil
-                    }
-                    return (entry.id, value)
-                }
-            }
-            var out: [(String, Fundamentals)] = []
-            for await r in group { if let r { out.append(r) } }
-            return out
+        let fetched = await gather(wanted) { entry -> (String, Fundamentals)? in
+            guard let value = try? await feed.fetch(for: entry.symbol), !value.isEmpty else { return nil }
+            return (entry.id, value)
         }
-        for (id, value) in results { fundamentals[id] = value }
+        fundamentals.merge(fetched) { _, new in new }
     }
 
     /// Count advancers and decliners for every floor an index row on the list summarises.
@@ -484,25 +480,17 @@ final class QuoteReader: ObservableObject {
     /// fetch rather than one per visit.
     ///
     /// By floor and not by row, so VNINDEX and a second HOSE index on the same list share one count.
-    /// Errors are swallowed as everywhere else here: a missing breadth line is not worth a message beside
-    /// prices that arrived fine.
     private func refreshBreadth(for symbols: [WatchedSymbol]) async {
         let floors = Set(symbols.compactMap { Breadth.floor(for: $0.symbol) })
         guard !floors.isEmpty else { return }
         let feed = breadthFeed
 
-        let results = await withTaskGroup(of: (String, Breadth)?.self) { group in
-            for floor in floors {
-                group.addTask {
-                    guard let value = try? await feed.breadth(for: floor) else { return nil }
-                    return (floor, value)
-                }
-            }
-            var out: [(String, Breadth)] = []
-            for await r in group { if let r { out.append(r) } }
-            return out
+        // Keyed by floor rather than by row id, which is the one place `gather`'s key is not a symbol id.
+        let fetched = await gather(Array(floors)) { floor -> (String, Breadth)? in
+            guard let value = try? await feed.breadth(for: floor) else { return nil }
+            return (floor, value)
         }
-        for (floor, value) in results { breadth[floor] = value }
+        breadth.merge(fetched) { _, new in new }
     }
 
     /// Pick the polling interval from whether anything being watched is currently trading. Idempotent —

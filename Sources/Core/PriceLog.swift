@@ -104,6 +104,20 @@ struct PriceLogs: Codable, Sendable, Equatable {
 
     subscript(id: String) -> PriceLog? { logs[id] }
 
+    /// The recorded series that are worth drawing, keyed by `WatchedSymbol.id`.
+    ///
+    /// Two points is where a sparkline starts existing: below that there is a value but no shape, and an
+    /// entry here would only shadow a feed series arriving later in the same session. The threshold lives
+    /// with the series rather than at the merge in `QuoteReader` — where it was, one layer above anything
+    /// the tests compile — because it is a statement about what a log contains and not about how a panel
+    /// happens to draw one.
+    var series: [String: [Double]] {
+        logs.compactMapValues { log in
+            let closes = log.closes
+            return closes.count >= 2 ? closes : nil
+        }
+    }
+
     /// Record a batch of quotes, keeping only the rows that need recording.
     ///
     /// Returns whether anything changed, so the caller can skip a write on the overwhelming majority of

@@ -189,6 +189,25 @@ struct PriceLogTests {
         #expect(logs["vietnam:SJC"]?.points.count == PriceLog.capacity)
     }
 
+    @Test("A single point is a value, not a shape, so it is not offered as a series")
+    func seriesNeedsTwoPoints() {
+        var logs = PriceLogs()
+        let entries = [watched("SJC", .vietnam), watched("USDVND", .vietnam)]
+        logs.record(entries, quotes: [
+            "vietnam:SJC": quote("SJC", .vietnam, 144_000_000, at: t0),
+            "vietnam:USDVND": quote("USDVND", .vietnam, 26_410, at: t0),
+        ], now: t0)
+        // One point each: a sparkline drawn from them is a dot, and offering them here would shadow a feed
+        // series arriving later in the same session with something that cannot be drawn at all.
+        #expect(logs.series.isEmpty)
+
+        logs.record(entries, quotes: [
+            "vietnam:SJC": quote("SJC", .vietnam, 144_500_000, at: later(60)),
+        ], now: later(60))
+        #expect(logs.series["vietnam:SJC"] == [144_000_000, 144_500_000])
+        #expect(logs.series["vietnam:USDVND"] == nil)
+    }
+
     @Test("A row that leaves the watchlist takes its history with it")
     func prune() {
         var logs = PriceLogs()

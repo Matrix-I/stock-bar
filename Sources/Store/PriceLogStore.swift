@@ -19,6 +19,10 @@ final class PriceLogStore: ObservableObject {
 
     @Published private(set) var logs: PriceLogs
 
+    /// The series worth drawing — see `PriceLogs.series`. Exposed as its own property so a reader asks for
+    /// what it wants rather than reaching through two levels of storage to assemble it.
+    var recordedSeries: [String: [Double]] { logs.series }
+
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
         let stored = defaults.data(forKey: Self.key).flatMap { try? JSONDecoder().decode(PriceLogs.self, from: $0) }

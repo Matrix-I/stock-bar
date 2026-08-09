@@ -26,6 +26,48 @@ extension Result {
     }
 }
 
+/// One request per symbol, fanned out, keeping the two kinds of failure apart.
+///
+/// Some upstreams have no multi-symbol endpoint worth using — Yahoo's wants a crumb and a cookie scraped
+/// from its web app, and TradingView's scanner is asked one instrument at a time — so both world feeds fan
+/// out and both then face the same question, which is the only interesting thing here.
+///
+/// AN UNLISTED SYMBOL IS NOT A FAILED FETCH. A venue that has never heard of a ticker has answered
+/// correctly, and reporting that as an error puts "Yahoo: no data for XYZ" under the panel while every
+/// other row updates fine. So `noData` becomes an absence and everything else stays an error — but an
+/// error is only worth surfacing if it took the whole batch down: one index failing while the others answer
+/// is not worth a message, and that row ages visibly by itself. Hence the rule at the bottom, which is the
+/// part that would drift if this were written out twice: throw only when NOTHING came back.
+func fetchEachSymbol(
+    _ symbols: [String],
+    _ one: @escaping @Sendable (String) async throws -> Quote?
+) async throws -> [Quote] {
+    guard !symbols.isEmpty else { return [] }
+
+    let results = await withTaskGroup(of: Result<Quote?, Error>.self) { group in
+        for symbol in symbols {
+            group.addTask {
+                do {
+                    return .success(try await one(symbol))
+                } catch QuoteError.noData {
+                    return .success(nil)
+                } catch {
+                    return .failure(error)
+                }
+            }
+        }
+        var out: [Result<Quote?, Error>] = []
+        for await r in group { out.append(r) }
+        return out
+    }
+
+    let quotes = results.compactMap { try? $0.get() }.compactMap { $0 }
+    if quotes.isEmpty, let failure = results.compactMap({ $0.failure }).first {
+        throw failure
+    }
+    return quotes
+}
+
 enum QuoteError: LocalizedError {
     case badStatus(Int)
     case malformed(String)
