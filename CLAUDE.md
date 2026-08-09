@@ -123,6 +123,12 @@ where it used to be) makes the gesture fail on the biggest target in the row.
   user revokes permanently. `AlertEngine.evaluate` returns the updated watchlist alongside the firings
   because a rearm changes state while announcing nothing; dropping that write is what silently turns
   "once" into "every minute".
+- **A holding refuses to answer more often than it answers.** `Core/Holding.swift` returns nil for both
+  profit figures unless quantity AND average cost are positive: with a basis of zero the profit equals the
+  whole market value, which renders as an enormous gain on a position whose cost has simply not been typed
+  in yet. Units are the instrument's own everywhere — shares, coins, lượng, each against its own currency
+  — and nothing in that file converts. If a portfolio total is ever added, it is the place that converts,
+  and it needs its own answer for a stale `USDVND`.
 - **A new field on `WatchedSymbol` must be decoded with `decodeIfPresent`.** A property default does NOT
   make a Codable key optional — the synthesised `init(from:)` still requires it — so adding `alerts`
   briefly made every previously stored row undecodable, and `WatchlistCoding` correctly carried them all

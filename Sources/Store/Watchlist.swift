@@ -128,6 +128,27 @@ final class Watchlist: ObservableObject {
         save()
     }
 
+    /// Set the size of a position, or clear it with nil.
+    ///
+    /// One field at a time, matching the editor, because the two are typed separately and a method taking
+    /// both would have to invent a value for whichever the user had not reached yet. A holding that ends up
+    /// empty becomes nil rather than a pair of zeros, so everything downstream asks one question.
+    func setHoldingQuantity(_ entry: WatchedSymbol, _ quantity: Double?) {
+        updateHolding(entry) { $0.quantity = quantity ?? 0 }
+    }
+
+    func setHoldingCost(_ entry: WatchedSymbol, _ cost: Double?) {
+        updateHolding(entry) { $0.averageCost = cost ?? 0 }
+    }
+
+    private func updateHolding(_ entry: WatchedSymbol, _ change: (inout Holding) -> Void) {
+        guard let i = symbols.firstIndex(where: { $0.id == entry.id }) else { return }
+        var holding = symbols[i].holding ?? Holding(quantity: 0, averageCost: 0)
+        change(&holding)
+        symbols[i].holding = holding.isEmpty ? nil : holding
+        save()
+    }
+
     /// Write back arming state after an evaluation. Separate from the editing methods above because this is
     /// the app talking to itself rather than the user changing anything, and because it must be a no-op when
     /// nothing moved — every write publishes, and republishing the list on each poll would redraw the whole

@@ -80,9 +80,6 @@ enum PriceFormat {
 
     // MARK: - Changes
 
-    /// The signed percentage shown next to the price, e.g. "+0.82%" / "−1.14%". Uses U+2212 MINUS SIGN
-    /// rather than a hyphen so the negative sign has the same width as the plus in a monospaced-digit
-    /// font — with a hyphen the label visibly shifts every time a quote crosses zero.
     /// A number typed by a person, back into a Double. nil for anything that isn't one.
     ///
     /// Written as the exact inverse of `decimalFormatter` above, because the number someone types into an
@@ -104,6 +101,19 @@ enum PriceFormat {
         return Double(s)
     }
 
+    /// A holding's size. Not a price, so it gets its own rule: grouped thousands like everything else, but
+    /// with up to eight decimals kept and none forced. A share count is a whole number and should read as
+    /// one ("1,200", not "1,200.00"), while a crypto position is routinely a fraction of a coin and a
+    /// two-decimal cap would round 0.0035 BTC to nothing at all.
+    static func quantity(_ value: Double) -> String {
+        let f = decimalFormatter()
+        f.maximumFractionDigits = 8
+        return f.string(from: NSNumber(value: value)) ?? String(value)
+    }
+
+    /// The signed percentage shown next to the price, e.g. "+0.82%" / "−1.14%". Uses U+2212 MINUS SIGN
+    /// rather than a hyphen so the negative sign has the same width as the plus in a monospaced-digit
+    /// font — with a hyphen the label visibly shifts every time a quote crosses zero.
     static func percent(_ pct: Double) -> String {
         sign(of: pct) + String(format: "%.2f%%", abs(pct))
     }

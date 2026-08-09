@@ -25,25 +25,32 @@ struct WatchedSymbol: Codable, Sendable, Hashable, Identifiable {
     ///
     var alerts: [PriceAlert] = []
 
-    /// Decoded by hand for one key, and the reason is the incident in WatchlistCoding's header read from
-    /// the other end. A property default does NOT make a Codable key optional — Swift's synthesised
-    /// `init(from:)` still requires it — so adding `alerts` made every row written before alerts existed
-    /// undecodable. WatchlistCoding then did exactly what it promises: it kept them as foreign rows and
-    /// showed the shipped defaults instead. Nothing was lost, and nothing was visible either. A new field
-    /// on this type must always be read with `decodeIfPresent`.
+    /// How much of this is owned and what it cost — see Holding. nil for a row that is only being watched,
+    /// which is most of them.
+    var holding: Holding?
+
+    /// Decoded by hand for the optional keys, and the reason is the incident in WatchlistCoding's header
+    /// read from the other end. A property default does NOT make a Codable key optional — Swift's
+    /// synthesised `init(from:)` still requires it — so adding `alerts` made every row written before
+    /// alerts existed undecodable. WatchlistCoding then did exactly what it promises: it kept them as
+    /// foreign rows and showed the shipped defaults instead. Nothing was lost, and nothing was visible
+    /// either. A new field on this type must always be read with `decodeIfPresent`.
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         symbol = try c.decode(String.self, forKey: .symbol)
         market = try c.decode(Market.self, forKey: .market)
         pinnedToMenuBar = try c.decode(Bool.self, forKey: .pinnedToMenuBar)
         alerts = try c.decodeIfPresent([PriceAlert].self, forKey: .alerts) ?? []
+        holding = try c.decodeIfPresent(Holding.self, forKey: .holding)
     }
 
-    init(symbol: String, market: Market, pinnedToMenuBar: Bool, alerts: [PriceAlert] = []) {
+    init(symbol: String, market: Market, pinnedToMenuBar: Bool,
+         alerts: [PriceAlert] = [], holding: Holding? = nil) {
         self.symbol = symbol
         self.market = market
         self.pinnedToMenuBar = pinnedToMenuBar
         self.alerts = alerts
+        self.holding = holding
     }
 
     /// Short label for the menu bar. VNINDEX is the one symbol whose ticker is too long to sit in a

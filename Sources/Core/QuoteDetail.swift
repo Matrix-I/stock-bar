@@ -74,6 +74,34 @@ enum QuoteDetail {
             }
         }
 
+        // The position, if there is one. Last before the timestamp because these are the only rows about
+        // the reader rather than about the instrument — everything above is true for anyone looking at this
+        // ticker, and everything here is true for exactly one person.
+        //
+        // Kept together as a block, which the card's fill order preserves: it fills the first column and
+        // then the second, so four consecutive rows either sit together or split once, never interleave
+        // with the valuation ratios above them.
+        if let holding = entry.holding, !holding.isEmpty {
+            if holding.quantity > 0 {
+                rows.append(Row(label: "Qty", value: PriceFormat.quantity(holding.quantity)))
+            }
+            if holding.averageCost > 0 {
+                rows.append(Row(label: "Avg cost",
+                                value: price(holding.averageCost, isIndex: entry.isIndex)))
+            }
+            if holding.quantity > 0 {
+                rows.append(Row(label: "Value",
+                                value: price(holding.marketValue(at: quote.price), isIndex: entry.isIndex)))
+            }
+            // Both halves or neither: a profit without the percentage begs the question it exists to
+            // answer, and the percentage alone hides the size of the position it is a percentage of.
+            if let profit = holding.profit(at: quote.price),
+               let percent = holding.profitPercent(at: quote.price) {
+                let signed = PriceFormat.change(profit, market: quote.market, isIndex: entry.isIndex)
+                rows.append(Row(label: "P/L", value: "\(signed) (\(PriceFormat.percent(percent)))"))
+            }
+        }
+
         rows.append(Row(label: "Updated", value: PriceFormat.asOf(quote.asOf, now: now)))
 
         return rows

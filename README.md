@@ -163,6 +163,22 @@ before nine in the morning. Permission is requested when the first alert is crea
 menu-bar ticker that demands notification access before it has anything to notify about gets refused, and
 the refusal is remembered.
 
+**A row can also carry a position.** The same editor strip takes a quantity and an average cost, and the
+detail card then adds Qty, Avg cost, Value and P/L — the profit signed and grouped, with the percentage
+beside it. Units are the instrument's own throughout: shares for a HOSE ticker, coins for a Binance pair,
+lượng for the gold bar, with the cost in whatever currency that row is already quoted in. Nothing here
+converts anything, which is what keeps the arithmetic honest.
+
+Half a position shows half the rows. A quantity typed before the cost has been dug out gives Qty and
+Value; **P/L stays absent until there is a basis to measure against**, because with a cost of zero the
+"profit" is the entire market value and would render as a spectacular gain on a position nobody has
+finished entering.
+
+**There is deliberately no portfolio total.** Summing these means adding dong to dollars, and while the app
+could now convert — `USDVND` is a row it carries — a total is a different feature with a different failure
+mode: one stale rate quietly re-pricing everything you own. A per-row profit is useful on its own in a way
+half a total is not.
+
 **Adding a symbol checks it with the venue first.** Neither upstream rejects a bad ticker outright — the
 Vietnamese board just omits the row and Binance answers `400` — so a typo used to join the list and render
 a dash forever, indistinguishable from a feed that was down. The add field now asks for a quote before
@@ -358,7 +374,7 @@ Sources/
     Panel/                       PanelHeader, SymbolList, QuoteRow, Sparkline,
                                  QuoteDetailCard, AddSymbolField, SettingsFooter
   App/StockBarApp.swift        NSStatusItem + NSPopover, entry point
-Tests/StockBarCoreTests/       139 tests over Sources/Core
+Tests/StockBarCoreTests/       145 tests over Sources/Core
 Tools/probe.sh                 exercises the data layer from the command line
 Tools/uisnap.sh                renders the popover to a PNG (no Screen Recording permission needed)
 Tools/makeicon.sh              regenerates AppIcon.icns from BrandMark (the .icns is committed)

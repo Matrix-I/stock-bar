@@ -114,6 +114,9 @@ enum Theme {
         /// across the panel, and 144,000,000 — the domestic gold bar, the longest price this app quotes —
         /// has to fit inside one of them. This is the width where both are true.
         static let alertField = Theme.pt(76)
+        /// The editor strip's row labels ("Alert", "Held"). Fixed so the two rows of fields line up under
+        /// each other instead of each starting wherever its own word happens to end.
+        static let editorLabel = Theme.pt(30)
         /// Keeps a few rows visible on a short display rather than letting the footer squeeze the list to
         /// nothing.
         static let minListHeight = Theme.pt(120)

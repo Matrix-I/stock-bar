@@ -64,7 +64,7 @@ struct SymbolList: View {
                 // Outside the HStack above, so the strip gets the full panel width and does not inherit
                 // the row's tap gesture — a click meant for a text field must not also toggle a card.
                 if editing, expanded == entry.id {
-                    RowEditor(reader: reader, entry: entry)
+                    RowEditor(reader: reader, watchlist: watchlist, entry: entry)
                         .padding(.bottom, Theme.Space.rowGap / 2)
                 }
             }
