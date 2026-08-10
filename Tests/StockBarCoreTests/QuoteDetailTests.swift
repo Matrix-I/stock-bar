@@ -43,7 +43,7 @@ struct QuoteDetailTests {
         let full = Quote(symbol: "VCB", market: .vietnam, price: 54_600, reference: 54_100,
                          ceiling: 57_800, floor: 50_400, volume: 2_072_300, asOf: now,
                          high: 55_000, low: 53_900, average: 54_480,
-                         foreignNet: -45_895, foreignRoom: 82_155_290,
+                         foreignBought: 120_400, foreignSold: 166_295, foreignRoom: 82_155_290,
                          bid: 54_500, bidSize: 2_860, ask: 54_700, askSize: 510)
         let rows = QuoteDetail.rows(for: entry("VCB", .vietnam), quote: full,
                                     fundamentals: vcbFundamentals, now: now)

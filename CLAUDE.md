@@ -116,6 +116,16 @@ where it used to be) makes the gesture fail on the biggest target in the row.
   Don't `cd` into it (that breaks codesign paths) and don't commit it.
 - **VN prices are real VND in the model.** The VPS board reports equities in thousands and indices in
   points; the scaling happens once, in `VNQuoteSource`. Getting it wrong is a 1000× error on screen.
+- **And the VPS board's QUANTITIES are in tens of shares** — `lot`, `lastVolume`, `fBVol`, `fSVolume` and
+  the sizes inside `g1`…`g7`. This file asserted the opposite for months and the app shipped every VN
+  volume, foreign flow and book size ten times too small, because a volume ten times too small is still a
+  plausible volume. Four measurements settle it, recorded on `VPSQuoteSource.sharesPerLot`: VNDirect's
+  `nmVolume` over `lot` across twenty stocks (9.83–10.00, mean 9.962); the floor sums ×10 reproducing what
+  Vietnamese boards print; `fBValue × 1000 ÷ (fBVol × 10)` landing on the row's own `avePrice`; and HOSE's
+  100-share board lot, against which these fields are 100% multiples of ten and only 5–15% multiples of a
+  hundred. `fRoom` is the exception and is NOT scaled — it arrives with a fractional part, and a count of
+  ten-share units cannot have one. When a feed's quantity unit is undocumented, divide a value field by it
+  and check the answer is a price.
 - **An alert is the app's only output that interrupts somebody, so its rules are pure and tested.**
   `Core/PriceAlert.swift` owns both: fire once then disarm, and rearm only past a half-percent margin.
   Neither is checkable by looking — telling "fires once" from "fires every minute" takes an hour of
@@ -195,10 +205,12 @@ where it used to be) makes the gesture fail on the biggest target in the row.
   from the midnight rebase — applied to a row with no reference, that rebase manufactures the very flat
   reading the missing reference exists to avoid. `WatchedSymbol.hasPerShareFundamentals` is the matching
   guard on the other side: SSI answers for "SJC" with some other company's figures.
-- **Foreign flow is shares, never value.** The board's `fBValue`/`fSValue` pair has a unit that does not
-  reconcile — measured against a real session it is neither dong nor thousands of dong — so
-  `Quote.foreignNet` is built from `fBVol`/`fSVolume` only. A number whose unit cannot be verified is not
-  shown; this is the gold-gap rule applied to a smaller number.
+- **Foreign flow is carried as two sides, and the net is derived.** `Quote.foreignBought`/`foreignSold`
+  are stored and `foreignNet` is computed from them, so a row and the floor total it feeds cannot
+  disagree. An index card shows both sides rather than the net, because a net near zero is the same number
+  on a quiet floor and on a busy one that balanced. The old note here said `fBValue`/`fSValue` had a unit
+  that reconciled with neither dong nor thousands of dong — that measurement divided by a volume ten times
+  too small (see above); the fields are thousands of dong and do reconcile.
 - **`.world` is a bucket of venues AND of feeds, not one of either.** `Market` picks a source, but that
   source is now `WorldQuoteSource`, a router: Yahoo's chart endpoint serves the Dow, the Nasdaq, the Nikkei
   and the dollar index, while TradingView's scanner serves spot gold, because Yahoo carries no spot gold at

@@ -71,11 +71,18 @@ struct Quote: Sendable, Identifiable {
     /// Net foreign buying this session, in SHARES, signed: positive bought, negative sold. VN equities
     /// only — khối ngoại is a fixture of every Vietnamese board, and no other market here reports it.
     ///
-    /// Shares and not value, deliberately. The board also carries fBValue/fSValue, but their unit does not
-    /// reconcile: for a session where 132k shares traded around 60,000 VND the buy value read 7.98e7,
-    /// which is neither dong (100× too small) nor thousands (10× too large). A number whose unit cannot be
-    /// verified is not shown — the same rule the gold gap was built under.
-    let foreignNet: Double?
+    /// Both sides are carried rather than only their difference, because an index card sums the floor and
+    /// "ten million bought against seventeen million sold" says something the net alone does not: whether
+    /// a quiet net was a quiet session or two large flows nearly cancelling.
+    let foreignBought: Double?
+    let foreignSold: Double?
+
+    /// The difference, which is what a single row shows. Derived rather than stored, so it can never
+    /// disagree with the two sides it is made of.
+    var foreignNet: Double? {
+        guard let foreignBought, let foreignSold else { return nil }
+        return foreignBought - foreignSold
+    }
 
     /// How much more foreigners may still buy, in shares (`fRoom`). The other half of the khối ngoại
     /// story: a heavy net buy reads differently when the room is nearly gone.
@@ -106,7 +113,8 @@ struct Quote: Sendable, Identifiable {
     init(symbol: String, market: Market, price: Double, reference: Double?,
          ceiling: Double?, floor: Double?, volume: Double?, asOf: Date,
          high: Double? = nil, low: Double? = nil,
-         average: Double? = nil, foreignNet: Double? = nil, foreignRoom: Double? = nil,
+         average: Double? = nil,
+         foreignBought: Double? = nil, foreignSold: Double? = nil, foreignRoom: Double? = nil,
          bid: Double? = nil, bidSize: Double? = nil,
          ask: Double? = nil, askSize: Double? = nil,
          currency: Currency? = nil) {
@@ -121,7 +129,8 @@ struct Quote: Sendable, Identifiable {
         self.high = high
         self.low = low
         self.average = average
-        self.foreignNet = foreignNet
+        self.foreignBought = foreignBought
+        self.foreignSold = foreignSold
         self.foreignRoom = foreignRoom
         self.bid = bid
         self.bidSize = bidSize
@@ -217,7 +226,8 @@ struct Quote: Sendable, Identifiable {
         return Quote(symbol: symbol, market: market, price: price, reference: price,
                      ceiling: nil, floor: nil, volume: volume, asOf: asOf,
                      high: high, low: low, average: average,
-                     foreignNet: foreignNet, foreignRoom: foreignRoom,
+                     foreignBought: foreignBought, foreignSold: foreignSold,
+                     foreignRoom: foreignRoom,
                      bid: bid, bidSize: bidSize, ask: ask, askSize: askSize)
     }
 }
