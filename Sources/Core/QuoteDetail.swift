@@ -117,6 +117,17 @@ enum QuoteDetail {
             if breadth.untraded > 0 {
                 rows.append(Row(label: "No trade", value: "\(breadth.untraded)"))
             }
+            // What the floor has actually traded, in money and in foreign flow. Summed from the same board
+            // sweep the counts above come from, so they cannot describe different moments.
+            if let value = breadth.tradedValue {
+                rows.append(Row(label: "Turnover", value: PriceFormat.money(value)))
+            }
+            // Both sides, not the net: on a floor the interesting question is the size of the two flows,
+            // and a net near zero hides whether it was a quiet day or a busy one that balanced.
+            if let bought = breadth.foreignBought, let sold = breadth.foreignSold {
+                rows.append(Row(label: "F. buy", value: PriceFormat.volume(bought)))
+                rows.append(Row(label: "F. sell", value: PriceFormat.volume(sold)))
+            }
         }
 
         // Khối ngoại: net foreign buying, in shares, signed. The one number on a Vietnamese board that

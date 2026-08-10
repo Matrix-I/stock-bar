@@ -146,6 +146,31 @@ enum PriceFormat {
         return String(format: "%.0f", v)
     }
 
+    /// A money total at the scale a whole exchange trades in, in the unit a Vietnamese board actually
+    /// speaks: "3,946 tỷ" — thousands of millions of dong.
+    ///
+    /// `tỷ` and not "B", alone among the abbreviations here. Every other figure on these cards is one
+    /// instrument's number and reads the same in any language; a floor's turnover is a number people quote
+    /// out loud, and they quote it in tỷ. Rendering 3.9e12 as "3.95T" would be arithmetically fine and
+    /// unrecognisable to anyone who follows this market.
+    ///
+    /// Below a billion it falls back to millions, because a quiet floor early in the session genuinely is
+    /// a two-digit tỷ figure and "0 tỷ" would read as a broken feed.
+    static func money(_ dong: Double) -> String {
+        let v = max(0, dong)
+        if v >= 1_000_000_000 { return "\(grouped(v / 1_000_000_000)) tỷ" }
+        if v >= 1_000_000     { return "\(grouped(v / 1_000_000)) tr" }
+        return grouped(v)
+    }
+
+    private static func grouped(_ value: Double) -> String {
+        let f = NumberFormatter()
+        f.numberStyle = .decimal
+        f.maximumFractionDigits = 0
+        f.groupingSeparator = ","
+        return f.string(from: NSNumber(value: value)) ?? String(format: "%.0f", value)
+    }
+
     /// A signed order-of-magnitude volume, for net flows: "+132k" bought, "−46k" sold. Through `volume`
     /// so a flow and the session volume beside it abbreviate identically, and with the same U+2212 the
     /// change figures use. Zero is "0", unsigned — flat is flat, not a small positive.

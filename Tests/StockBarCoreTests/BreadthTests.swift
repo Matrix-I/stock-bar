@@ -12,9 +12,55 @@ import Foundation
 @Suite("Breadth")
 struct BreadthTests {
 
-    private func quote(_ symbol: String, price: Double, reference: Double?) -> Quote {
+    private func quote(_ symbol: String, price: Double, reference: Double?,
+                       volume: Double? = nil, average: Double? = nil,
+                       bought: Double? = nil, sold: Double? = nil) -> Quote {
         Quote(symbol: symbol, market: .vietnam, price: price, reference: reference,
-              ceiling: nil, floor: nil, volume: nil, asOf: Date())
+              ceiling: nil, floor: nil, volume: volume, asOf: Date(),
+              average: average, foreignBought: bought, foreignSold: sold)
+    }
+
+    @Test("The floor's turnover is volume against the price it was traded at, not the price now")
+    func turnover() {
+        let quotes = [
+            quote("A", price: 61_000, reference: 60_000, volume: 1_000, average: 60_500),
+            quote("B", price: 59_000, reference: 60_000, volume: 2_000, average: 59_500),
+            // Untraded, and it must contribute nothing without being skipped — a row dropped here would
+            // also vanish from the counts, which is the bug the fetchBoardRows split exists to prevent.
+            quote("C", price: 0, reference: 60_000, volume: 0, average: 0),
+        ]
+        let b = Breadth.count(floor: "HOSE", quotes: quotes)
+        // 1,000 × 60,500 + 2,000 × 59,500 = 179,500,000. Against `price` instead of `average` it would
+        // read 179,000,000 — close enough to look right and wrong every single session.
+        #expect(b.tradedValue == 179_500_000)
+        #expect(b.total == 3)
+    }
+
+    @Test("A board that published no totals reports nil, which is not the same as a floor that traded nothing")
+    func silenceIsNotZero() {
+        let quotes = [quote("A", price: 61_000, reference: 60_000),
+                      quote("B", price: 59_000, reference: 60_000)]
+        let b = Breadth.count(floor: "HOSE", quotes: quotes)
+        // The counts still stand — those need only a price and a reference.
+        #expect(b.up == 1 && b.down == 1)
+        // But nothing said what traded, and "0 tỷ" on the card would be a claim the feed never made.
+        #expect(b.tradedValue == nil)
+        #expect(b.foreignBought == nil)
+        #expect(b.foreignSold == nil)
+    }
+
+    @Test("Foreign flow is summed as two sides, because the net hides the size of both")
+    func foreignSides() {
+        let quotes = [
+            quote("A", price: 61_000, reference: 60_000, bought: 500_000, sold: 100_000),
+            quote("B", price: 59_000, reference: 60_000, bought: 200_000, sold: 900_000),
+        ]
+        let b = Breadth.count(floor: "HOSE", quotes: quotes)
+        #expect(b.foreignBought == 700_000)
+        #expect(b.foreignSold == 1_000_000)
+        // A net of −300,000 would be the same on a floor that traded 300,000 shares and on one that
+        // traded 1.7 million. The card shows both sides so those two days do not look alike.
+        #expect(b.foreignBought! - b.foreignSold! == -300_000)
     }
 
     @Test("Up, down, flat and never-traded are four counts, not three")
