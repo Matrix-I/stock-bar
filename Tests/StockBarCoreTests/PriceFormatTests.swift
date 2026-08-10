@@ -118,14 +118,30 @@ struct PriceFormatTests {
         #expect(PriceFormat.volume(-5) == "0")
     }
 
+    @Test("A floor's turnover abbreviates exactly as the share count beside it does")
+    func moneyMatchesVolume() {
+        // The two sit side by side on an index card. Rendered on different ladders they read as different
+        // kinds of number — which is what "6,143 tỷ" next to "281.2M" did, and it also put the card's one
+        // Vietnamese word directly under an English label.
+        #expect(PriceFormat.money(6_143_000_000_000) == "6.14T")
+        #expect(PriceFormat.money(376_900_000_000) == "376.90B")
+        #expect(PriceFormat.money(0) == "0")
+        // Same input, same string, whichever function asked.
+        for value in [999.0, 1_000, 834_000, 12_400_000, 1_500_000_000, 6_143_000_000_000] {
+            #expect(PriceFormat.money(value) == PriceFormat.volume(value))
+        }
+    }
+
     // MARK: As-of
 
     @Test("A fresh quote reads as just now, and a minute-old one in minutes")
     func asOfRecent() {
         let now = Date(timeIntervalSince1970: 1_800_000_000)
         #expect(PriceFormat.asOf(now, now: now) == "just now")
-        #expect(PriceFormat.asOf(now.addingTimeInterval(-44), now: now) == "just now")
-        #expect(PriceFormat.asOf(now.addingTimeInterval(-45), now: now) == "0m ago")
+        // A full minute stays "just now". Anything shorter used to print "0m ago", which is not a
+        // duration anybody reads — it is what integer division says when there is nothing to report.
+        #expect(PriceFormat.asOf(now.addingTimeInterval(-59), now: now) == "just now")
+        #expect(PriceFormat.asOf(now.addingTimeInterval(-60), now: now) == "1m ago")
         #expect(PriceFormat.asOf(now.addingTimeInterval(-600), now: now) == "10m ago")
     }
 

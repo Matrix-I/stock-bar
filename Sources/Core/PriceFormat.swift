@@ -138,37 +138,30 @@ enum PriceFormat {
 
     /// Session volume: "12.4M" / "834k" shares. Traders read volume by order of magnitude, so an exact
     /// digit count would be noise.
-    static func volume(_ shares: Double) -> String {
-        let v = max(0, shares)
-        if v >= 1_000_000_000 { return String(format: "%.2fB", v / 1_000_000_000) }
-        if v >= 1_000_000     { return String(format: "%.1fM", v / 1_000_000) }
-        if v >= 1000          { return String(format: "%.0fk", v / 1000) }
+    static func volume(_ shares: Double) -> String { magnitude(shares) }
+
+    /// A money total at the scale a whole exchange trades in: "6.14T" of dong.
+    ///
+    /// THE SAME LADDER AS `volume`, and that is the whole point of routing both through one function. The
+    /// two sit side by side on an index card — a turnover beside a share count — and a card that
+    /// abbreviates one of them differently from the other reads as though they were different kinds of
+    /// number.
+    ///
+    /// This first shipped rendering "6,143 tỷ", which is what a Vietnamese board says out loud and was
+    /// also the only Vietnamese word on a card whose header argues for English throughout. That card drops
+    /// trần, sàn and tham chiếu precisely so it can be read by someone who does not already know what a
+    /// Vietnamese board looks like; "tỷ" put that requirement straight back, one row below "Turnover".
+    static func money(_ dong: Double) -> String { magnitude(dong) }
+
+    /// k / M / B / T. The trillion step is here for money — a whole floor turns over twelve digits of dong
+    /// in a session — and costs a share count nothing, since no volume this app shows reaches it.
+    private static func magnitude(_ value: Double) -> String {
+        let v = max(0, value)
+        if v >= 1_000_000_000_000 { return String(format: "%.2fT", v / 1_000_000_000_000) }
+        if v >= 1_000_000_000     { return String(format: "%.2fB", v / 1_000_000_000) }
+        if v >= 1_000_000         { return String(format: "%.1fM", v / 1_000_000) }
+        if v >= 1000              { return String(format: "%.0fk", v / 1000) }
         return String(format: "%.0f", v)
-    }
-
-    /// A money total at the scale a whole exchange trades in, in the unit a Vietnamese board actually
-    /// speaks: "3,946 tỷ" — thousands of millions of dong.
-    ///
-    /// `tỷ` and not "B", alone among the abbreviations here. Every other figure on these cards is one
-    /// instrument's number and reads the same in any language; a floor's turnover is a number people quote
-    /// out loud, and they quote it in tỷ. Rendering 3.9e12 as "3.95T" would be arithmetically fine and
-    /// unrecognisable to anyone who follows this market.
-    ///
-    /// Below a billion it falls back to millions, because a quiet floor early in the session genuinely is
-    /// a two-digit tỷ figure and "0 tỷ" would read as a broken feed.
-    static func money(_ dong: Double) -> String {
-        let v = max(0, dong)
-        if v >= 1_000_000_000 { return "\(grouped(v / 1_000_000_000)) tỷ" }
-        if v >= 1_000_000     { return "\(grouped(v / 1_000_000)) tr" }
-        return grouped(v)
-    }
-
-    private static func grouped(_ value: Double) -> String {
-        let f = NumberFormatter()
-        f.numberStyle = .decimal
-        f.maximumFractionDigits = 0
-        f.groupingSeparator = ","
-        return f.string(from: NSNumber(value: value)) ?? String(format: "%.0f", value)
     }
 
     /// A signed order-of-magnitude volume, for net flows: "+132k" bought, "−46k" sold. Through `volume`
@@ -183,7 +176,9 @@ enum PriceFormat {
     /// "13:18" when you're deciding whether the feed is stuck.
     static func asOf(_ date: Date, now: Date = Date()) -> String {
         let secs = now.timeIntervalSince(date)
-        if secs < 45 { return "just now" }
+        // A full minute, not 45 seconds. Below the old threshold the integer division printed "0m ago",
+        // which says nothing at all and looks like a bug on a card where every other row is a real number.
+        if secs < 60 { return "just now" }
         if secs < 3600 { return "\(Int(secs / 60))m ago" }
         let f = DateFormatter()
         f.dateFormat = "HH:mm"
